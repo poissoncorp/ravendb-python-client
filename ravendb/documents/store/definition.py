@@ -8,6 +8,7 @@ from typing import Callable, Union, Optional, TypeVar, List, Dict, TYPE_CHECKING
 
 from ravendb import constants, exceptions
 from ravendb.changes.database_changes import DatabaseChanges
+from ravendb.documents.bulk_insert_operation import BulkInsertOperation
 from ravendb.documents.operations.executor import MaintenanceOperationExecutor, OperationExecutor
 from ravendb.documents.operations.indexes import PutIndexesOperation
 from ravendb.documents.session.event_args import (
@@ -136,7 +137,7 @@ class DocumentStoreBase:
                     f"Invalid file. File stored under the path '{value}' isn't valid .pem certificate. "
                     f"BEGIN CERTIFICATE header wasn't found."
                 )
-            if "BEGIN RSA PRIVATE KEY" not in content:
+            if "BEGIN PRIVATE KEY" not in content:
                 raise ValueError(
                     f"Invalid file. File stored under the path '{value}' isn't valid .pem certificate. "
                     f"BEGIN RSA PRIVATE KEY header wasn't found."
@@ -163,13 +164,9 @@ class DocumentStoreBase:
     def operations(self) -> OperationExecutor:
         pass
 
-    # todo: changes
-
     # todo: aggressive_caching
 
     # todo: time_series
-
-    # todo: bulk_insert
 
     @abstractmethod
     def open_session(self, database: Optional[str] = None, session_options: Optional = None):
@@ -313,7 +310,6 @@ class DocumentStore(DocumentStoreBase):
         self.urls = [urls] if isinstance(urls, str) else urls
         self.database = database
         self.__request_executors: Dict[str, Lazy[RequestExecutor]] = CaseInsensitiveDict()
-        # todo: database changes
         # todo: aggressive cache
         self.__maintenance_operation_executor: Union[None, MaintenanceOperationExecutor] = None
         self.__operation_executor: Union[None, OperationExecutor] = None
@@ -518,6 +514,10 @@ class DocumentStore(DocumentStoreBase):
         return self
 
     # todo: aggressively cache
+
+    def bulk_insert(self, database_name: Optional[str] = None) -> BulkInsertOperation:
+        self.assert_initialized()
+        return BulkInsertOperation(self.get_effective_database(database_name), self)
 
     def _assert_valid_configuration(self) -> None:
         if not self.urls:
