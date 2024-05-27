@@ -625,9 +625,13 @@ class BulkInsertOperation:
             self.operation = operation
 
         def store(self, key: str, name: str, attachment_bytes: bytes, content_type: Optional[str] = None):
-            self.operation._concurrency_check()
-            self.operation._end_previous_command_if_needed()
-            self.operation._ensure_ongoing_operation()
+            release_lock_callback = self.operation._concurrency_check()
+            try:
+                self.operation._end_previous_command_if_needed()
+                self.operation._ensure_ongoing_operation()
+            except Exception as e:
+                release_lock_callback()
+                raise e
 
             try:
                 if not self.operation._first:
@@ -654,6 +658,9 @@ class BulkInsertOperation:
 
             except Exception as e:
                 self.operation._handle_errors(key, e)
+
+            finally:
+                release_lock_callback()
 
     def attachments_for(self, key: str) -> BulkInsertOperation.AttachmentsBulkInsert:
         if not key or key.isspace():
