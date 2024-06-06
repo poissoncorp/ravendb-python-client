@@ -206,7 +206,7 @@ class DocumentSubscriptions:
         if not self._subscriptions:
             return
 
-        for subscription in self._subscriptions:
+        for subscription in list(self._subscriptions):
             subscription.close()
 
     def drop_connection(self, name: str, database: Optional[str] = None) -> None:
