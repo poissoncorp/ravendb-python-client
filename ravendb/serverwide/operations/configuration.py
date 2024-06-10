@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING, Dict
 
 import requests
 
 from ravendb import ServerNode
+from ravendb.documents.operations.definitions import MaintenanceOperation, VoidMaintenanceOperation
 from ravendb.documents.operations.ongoing_tasks import OngoingTaskType
 from ravendb.http.raven_command import RavenCommand, VoidRavenCommand
 from ravendb.http.topology import RaftCommand
 from ravendb.documents.operations.backups.settings import PeriodicBackupConfiguration
-from ravendb.serverwide.operations.common import ServerOperation, T, VoidServerOperation
+from ravendb.serverwide.operations.common import ServerOperation, T, VoidServerOperation, DatabaseSettings
 from ravendb.serverwide.operations.ongoing_tasks import IServerWideTask, ServerWideTaskResponse
 from ravendb.tools.utils import Utils
 from ravendb.util.util import RaftIdGenerator
@@ -163,3 +164,72 @@ class DeleteServerWideTaskOperation(VoidServerOperation):
         def create_request(self, node: ServerNode) -> requests.Request:
             url = f"{node.url}/admin/configuration/server-wide/task?type={self._type.value}&name={Utils.quote_key(self._name)}"
             return requests.Request(method="DELETE", url=url)
+
+
+class GetDatabaseSettingsOperation(MaintenanceOperation[DatabaseSettings]):
+    def __init__(self, database_name: str = None):
+        if database_name is None:
+            raise ValueError("Database name cannot be None")
+        self._database_name = database_name
+
+    def get_command(self, conventions: "DocumentConventions") -> "RavenCommand[DatabaseSettings]":
+        return self.GetDatabaseSettingsCommand(self._database_name)
+
+    class GetDatabaseSettingsCommand(RavenCommand[DatabaseSettings]):
+        def __init__(self, database_name: str = None):
+            super().__init__(DatabaseSettings)
+
+            if database_name is None:
+                raise ValueError("Database name cannot be None")
+
+            self._database_name = database_name
+
+        def is_read_request(self) -> bool:
+            return False
+
+        def create_request(self, node: ServerNode) -> requests.Request:
+            url = f"{node.url}/databases/{self._database_name}/admin/record"
+            return requests.Request(method="GET", url=url)
+
+        def set_response(self, response: Optional[str], from_cache: bool) -> None:
+            if response is None:
+                self.result = None
+                return
+
+            self.result = DatabaseSettings.from_json(json.loads(response))
+
+
+class PutDatabaseSettingsOperation(VoidMaintenanceOperation):
+    def __init__(self, database_name: str, configuration_settings: Dict[str, str]):
+        if database_name is None:
+            raise ValueError("Database name cannot be None")
+        self._database_name = database_name
+
+        if configuration_settings is None:
+            raise ValueError("Configuration settings cannot be None")
+        self._configuration_settings = configuration_settings
+
+    def get_command(self, conventions: "DocumentConventions") -> "VoidRavenCommand":
+        return self.PutDatabaseSettingsCommand(self._configuration_settings, self._database_name)
+
+    class PutDatabaseSettingsCommand(VoidRavenCommand, RaftCommand):
+        def __init__(self, configuration_settings: Dict[str, str], database_name: str):
+            super().__init__()
+            if database_name is None:
+                raise ValueError("Database name cannot be None.")
+            self._database_name = database_name
+
+            if configuration_settings is None:
+                raise ValueError("Configuration settings cannot be None.")
+            self._configuration_settings = configuration_settings
+
+        def is_read_request(self) -> bool:
+            return False
+
+        def get_raft_unique_request_id(self) -> str:
+            return RaftIdGenerator.new_id()
+
+        def create_request(self, node: ServerNode) -> requests.Request:
+            url = f"{node.url}/databases/{self._database_name}/admin/configuration/settings"
+
+            return requests.Request(method="PUT", url=url, data=self._configuration_settings)

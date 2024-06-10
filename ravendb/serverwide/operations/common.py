@@ -371,6 +371,10 @@ class DatabaseSettings:
     def __init__(self, settings: Dict[str, str] = None):
         self.settings = settings
 
+    @classmethod
+    def from_json(cls, json_dict: Dict) -> DatabaseSettings:
+        return cls(json_dict["Settings"])
+
 
 class ReorderDatabaseMembersOperation(VoidServerOperation):
     class Parameters:
