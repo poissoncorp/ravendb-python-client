@@ -413,9 +413,6 @@ class BulkInsertOperation:
         self._generate_entity_id_on_the_client.try_set_identity(entity, key)
         return key
 
-    # todo: CountersBulkInsert
-    # todo: CountersBulkInsertOperation
-
     class TimeSeriesBulkInsertBase(ABC):
         def __init__(self, operation: Optional[BulkInsertOperation], id_: Optional[str], name: Optional[str]):
             operation._end_previous_command_if_needed()
