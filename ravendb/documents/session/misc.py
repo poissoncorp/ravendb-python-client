@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     )
     from ravendb.documents import DocumentStore
 
-
 _T_Key = TypeVar("_T_Key")
 _T_Value = TypeVar("_T_Value")
 
@@ -39,8 +38,8 @@ class ForceRevisionStrategy(Enum):
 
 
 class SessionInfo:
-    __client_session_id_counter = threading.local()
-    __client_session_id_counter.counter = 0
+    _client_session_id_counter = threading.local()
+    _client_session_id_counter.counter = 0
 
     def __init__(
         self, session: InMemoryDocumentSessionOperations, options: SessionOptions, document_store: DocumentStore
@@ -49,11 +48,11 @@ class SessionInfo:
             raise ValueError("DocumentStore cannot be None")
         if not session:
             raise ValueError("Session cannot be None")
-        self.__session = session
-        self.__session_id: Union[None, int] = None
-        self.__session_id_used: Union[None, bool] = None
-        self.__load_balancer_context_seed = session._request_executor.conventions.load_balancer_context_seed
-        self.__can_use_load_balance_behavior = (
+        self._session = session
+        self._session_id: Union[None, int] = None
+        self._session_id_used: Union[None, bool] = None
+        self._load_balancer_context_seed = session.request_executor.conventions.load_balancer_context_seed
+        self._can_use_load_balance_behavior = (
             session.conventions.load_balance_behavior == LoadBalanceBehavior.USE_SESSION_CONTEXT
             and session.conventions.load_balancer_per_session_context_selector is not None
         )
@@ -64,36 +63,53 @@ class SessionInfo:
 
     @property
     def can_use_load_balance_behavior(self) -> bool:
-        return self.__can_use_load_balance_behavior
+        return self._can_use_load_balance_behavior
 
     @property
     def session_id(self) -> int:
-        if self.__session_id is None:
+        if self._session_id is None:
             context = None
-            selector = self.__session.conventions.load_balancer_per_session_context_selector
+            selector = self._session.conventions.load_balancer_per_session_context_selector
             if selector is not None:
-                context = selector(self.__session.database_name)
-            self.__set_context_internal(context)
-        self.__session_id_used = True
-        return self.__session_id
+                context = selector(self._session.database_name)
+            self._set_context_internal(context)
+        self._session_id_used = True
+        return self._session_id
 
-    def __set_context_internal(self, session_key: str) -> None:
-        if self.__session_id_used:
+    @property
+    def context(self):
+        # placeholder for convenient setter
+        return None
+
+    @context.setter
+    def context(self, session_id: str):
+        if not session_id or session_id.isspace():
+            raise ValueError("Session key cannot be None or whitespace")
+
+        self._set_context_internal(session_id)
+
+        self._can_use_load_balance_behavior = (
+            self._can_use_load_balance_behavior
+            or self._session.conventions.load_balance_behavior == LoadBalanceBehavior.USE_SESSION_CONTEXT
+        )
+
+    def _set_context_internal(self, session_id: str) -> None:
+        if self._session_id_used:
             raise RuntimeError(
                 "Unable to set the session context after it has already been used. "
                 "The session context can only be modified before it is utilized."
             )
 
-        if session_key is None:
-            v = self.__client_session_id_counter.counter
-            self.__session_id = v
+        if session_id is None:
+            v = self._client_session_id_counter.counter
+            self._session_id = v
             v += 1
-            self.__client_session_id_counter = v
+            self._client_session_id_counter = v
         else:
-            self.__session_id = int(hashlib.md5(bytes(session_key)).digest().decode("utf-8"))
+            self._session_id = int(hashlib.md5(session_id.encode("utf-8")).hexdigest(), 16)
 
     def increment_request_count(self) -> None:
-        self.__session.increment_requests_count()
+        self._session.increment_requests_count()
 
 
 class SessionOptions:
@@ -193,7 +209,7 @@ class JavaScriptArray:
 
     def __get_next_argument_name(self) -> str:
         self.__arg_counter += 1
-        return f"val_{self.__arg_counter-1}_{self.__suffix}"
+        return f"val_{self.__arg_counter - 1}_{self.__suffix}"
 
     def add(self, *u) -> JavaScriptArray:
         def __func(value) -> str:
