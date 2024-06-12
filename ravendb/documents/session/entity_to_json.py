@@ -1,6 +1,6 @@
 import inspect
 from copy import deepcopy
-from typing import Optional, TYPE_CHECKING, Union, Type, TypeVar, Dict, Any
+from typing import Optional, TYPE_CHECKING, Union, Type, TypeVar, Dict, Any, Tuple
 
 from ravendb.primitives import constants
 from ravendb.documents.session.document_info import DocumentInfo
@@ -136,62 +136,30 @@ class EntityToJsonStatic:
 
     @staticmethod
     def convert_to_entity(
-        document: dict,
-        object_type: [_T],
+        document: Dict[str, Any],
+        object_type: Type[_T],
         conventions: "DocumentConventions",
         session: Optional["InMemoryDocumentSessionOperations"] = None,
         key: str = None,
     ) -> _T:
-        # This method has two steps - extract the type (I), and then convert it into the entity (II)
-        # todo: Separate it into two different functions and isolate the return statements from the first part
-
-        # I. Extract the object type
         metadata = document.get("@metadata")
         document_deepcopy = deepcopy(document)
 
-        # 1. Get type from metadata
-        type_from_metadata = conventions.try_get_type_from_metadata(metadata)
-        is_projection = False
-        key = key or metadata.get(constants.Documents.Metadata.ID, None)
+        object_type, is_projection, should_update_metadata_python_type = EntityToJsonUtils.determine_object_type(
+            document, conventions, object_type, metadata
+        )
 
-        # 1.1 Check if passed object type (or extracted from metadata) is a dictionary and if document isn't a dict
-        if object_type == dict or (object_type is None and type_from_metadata == "builtins.dict"):
+        if object_type is dict:
             EntityToJsonUtils.invoke_after_conversion_to_entity_event(session, key, object_type, document_deepcopy)
             return document_deepcopy
 
-        # 1.2 If there's no object type in metadata
-        if type_from_metadata is None:
-            # 1.2.1 Try to set it with passed object type
-            if object_type is not None:
-                metadata["Raven-Python-Type"] = "{0}.{1}".format(object_type.__module__, object_type.__name__)
-            # 1.2.2 no type defined on document or during load, return a dict
-            else:
-                dyn = DynamicStructure(**document_deepcopy)
-                EntityToJsonUtils.invoke_after_conversion_to_entity_event(session, key, object_type, document_deepcopy)
-                return dyn
+        if object_type is DynamicStructure:
+            dyn = DynamicStructure(**document_deepcopy)
+            EntityToJsonUtils.invoke_after_conversion_to_entity_event(session, key, object_type, document_deepcopy)
+            return dyn
 
-        # 2. There was a type in the metadata
-        else:
-            object_from_metadata = Utils.import_class(type_from_metadata)
-
-            # 2.0 Check if the user wants to cast dict to type
-            if object_from_metadata == dict and object_type != dict:
-                pass
-            # 2.1 Import was successful
-            elif object_from_metadata is not None:
-                # 2.1.1 Set object_type to successfully imported type/ from metadata inherits from passed object_type
-                if object_type is None or Utils.is_inherit(object_type, object_from_metadata):
-                    object_type = object_from_metadata
-
-                # 2.1.2 Passed type is not a type from metadata, neither there's no inheritance - probably projection
-                elif object_type is not object_from_metadata:
-                    is_projection = True
-                    if not all([name in object_from_metadata.__dict__ for name in object_type.__dict__]):
-                        raise exceptions.InvalidOperationException(
-                            f"Cannot covert document from type {object_from_metadata} to {object_type}"
-                        )
-
-        # We have object type set - it was either extracted or passed through args
+        if should_update_metadata_python_type:
+            EntityToJsonUtils.set_python_type_in_metadata(metadata, object_type)
 
         # Fire before conversion to entity events
         if session:
@@ -199,14 +167,11 @@ class EntityToJsonStatic:
                 BeforeConversionToEntityEventArgs(session, key, object_type, document_deepcopy)
             )
 
-        # II. Conversion to entity part
+        # Conversion to entity
 
-        # By custom defined 'from_json' serializer class method
-        # todo: make separate interface to do from_json
         if "from_json" in object_type.__dict__ and inspect.ismethod(object_type.from_json):
+            # By custom defined 'from_json' serializer class method
             entity = object_type.from_json(document_deepcopy)
-
-        # By projection
         elif is_projection:
             entity = DynamicStructure(**document_deepcopy)
             entity.__class__ = object_type
@@ -214,8 +179,6 @@ class EntityToJsonStatic:
                 entity = Utils.initialize_object(document_deepcopy, object_type)
             except TypeError as e:
                 raise InvalidOperationException("Probably projection error", e)
-
-        # Happy path - successful extraction of the type from metadata, if not - got object_type passed to arguments
         else:
             entity = Utils.convert_json_dict_to_object(document_deepcopy, object_type)
 
@@ -278,3 +241,69 @@ class EntityToJsonUtils:
 
         if set_metadata:
             json_node.update({constants.Documents.Metadata.KEY: metadata_node})
+
+    @staticmethod
+    def determine_object_type(
+        document: Dict[str, Any],
+        conventions: DocumentConventions,
+        object_type_from_user: Optional[Type[Any]] = None,
+        metadata: Dict[str, Any] = None,
+    ) -> Tuple[
+        Type[Union[Any, DynamicStructure, Dict[str, Any]]], bool, bool
+    ]:  # -> object_type, is_projection, should_update_metadata_python_type
+        # Try to extract the object type from the metadata
+        type_name_from_metadata = conventions.try_get_type_from_metadata(metadata)
+
+        # Check if user needs dictionary or if we can return dictionary
+        if object_type_from_user is dict or (
+            object_type_from_user is None and type_name_from_metadata == "builtins.dict"
+        ):
+            return dict, False, False
+
+        # No Python type in metadata
+        if type_name_from_metadata is None:
+            if object_type_from_user is not None:
+                # Try using passed object type
+                return object_type_from_user, False, True
+            else:
+                # No type defined, but the user didn't explicitly say that they need a dict - return DynamicStructure
+                return DynamicStructure, False, False
+
+        # Python object type is in the metadata
+        object_type_from_metadata = Utils.import_class(type_name_from_metadata)
+        if object_type_from_metadata is None:
+            # Unsuccessful import means the document has been probably stored within other Python project
+            # or the original object class has been removed - essentially we have only object_type to rely on
+            if object_type_from_user is None:
+                raise RuntimeError(
+                    f"Cannot import class '{type_name_from_metadata}' to convert '{document}' to an object, "
+                    f"it might be removed from your project. Provide an alternative object type "
+                    f"to convert the document to or pass 'dict' to receive dictionary JSON representation."
+                )
+            return object_type_from_user, False, False
+
+        # Successfully imported the class from metadata - but before conversion check for projections and inheritance
+
+        # Maybe user wants to cast from dict to their type
+        if object_type_from_metadata is dict:
+            return object_type_from_user, False, False
+
+        # User doesn't need projection, or class from metadata is a child of a class provided by user
+        # We can safely use class from metadata
+        if object_type_from_user is None or Utils.is_inherit(object_type_from_user, object_type_from_metadata):
+            return object_type_from_metadata, False, False
+
+        # Passed type is not a type from metadata, neither there's no inheritance - probably projection
+        elif object_type_from_user is not object_type_from_metadata:
+            if not all([name in object_type_from_metadata.__dict__ for name in object_type_from_user.__dict__]):
+                # Document from database and object_type from user aren't compatible
+                raise exceptions.InvalidOperationException(
+                    f"Cannot covert document from type {object_type_from_metadata} to {object_type_from_user}"
+                )
+
+            # Projection
+            return object_type_from_user, True, False
+
+    @staticmethod
+    def set_python_type_in_metadata(metadata: Dict[str, Any], object_type: Type[Any]) -> None:
+        metadata["Raven-Python-Type"] = "{0}.{1}".format(object_type.__module__, object_type.__name__)

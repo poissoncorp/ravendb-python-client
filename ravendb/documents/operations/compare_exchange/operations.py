@@ -71,9 +71,7 @@ class PutCompareExchangeValueOperation(IOperation[CompareExchangeResult], Generi
         self._metadata = metadata
 
     def get_command(self, store: DocumentStore, conventions: DocumentConventions, cache: HttpCache) -> RavenCommand[_T]:
-        return self.__PutCompareExchangeValueCommand(
-            self._key, self._value, self._index, self._metadata, conventions
-        )
+        return self.__PutCompareExchangeValueCommand(self._key, self._value, self._index, self._metadata, conventions)
 
     class __PutCompareExchangeValueCommand(RavenCommand[_T], RaftCommand, Generic[_T]):
         def __init__(

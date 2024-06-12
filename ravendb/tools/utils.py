@@ -402,7 +402,7 @@ class Utils(object):
             return header[1 : len(header) - 2]
 
     @staticmethod
-    def import_class(name) -> Type:
+    def import_class(name) -> Optional[Type]:
         components = name.split(".")
         module_name = ".".join(name.split(".")[:-1])
         mod = None

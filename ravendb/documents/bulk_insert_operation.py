@@ -322,7 +322,7 @@ class BulkInsertOperation:
 
     def _write_document(self, entity: object, metadata: MetadataAsDictionary):
         document_info = DocumentInfo(metadata_instance=metadata)
-        json_dict = EntityToJsonStatic.convert_entity_to_json(entity, self._conventions, document_info)
+        json_dict = EntityToJsonStatic.convert_entity_to_json(entity, self._conventions, document_info, True)
         self._current_data_buffer += bytearray(json.dumps(json_dict), encoding="utf-8")
 
     def _ensure_ongoing_operation(self) -> None:

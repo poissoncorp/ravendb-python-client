@@ -331,7 +331,7 @@ class DocumentConventions(object):
         return result
 
     @staticmethod
-    def try_get_type_from_metadata(metadata):
+    def try_get_type_from_metadata(metadata: Dict[str, Any]) -> Optional[str]:
         if "Raven-Python-Type" in metadata:
             return metadata["Raven-Python-Type"]
         return None
