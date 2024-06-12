@@ -1,6 +1,6 @@
 import inspect
 from copy import deepcopy
-from typing import Optional, TYPE_CHECKING, Union, Type, TypeVar, Dict
+from typing import Optional, TYPE_CHECKING, Union, Type, TypeVar, Dict, Any
 
 from ravendb.primitives import constants
 from ravendb.documents.session.document_info import DocumentInfo
@@ -12,14 +12,13 @@ from ravendb.documents.session.event_args import (
 )
 from ravendb.exceptions import exceptions
 from ravendb.exceptions.exceptions import InvalidOperationException
-from ravendb.tools.utils import Utils, _DynamicStructure
+from ravendb.tools.utils import Utils, DynamicStructure
 from ravendb.documents.conventions import DocumentConventions
 
 if TYPE_CHECKING:
     from ravendb.documents.session.document_session_operations.in_memory_document_session_operations import (
         InMemoryDocumentSessionOperations,
     )
-
 
 _T = TypeVar("_T")
 
@@ -46,19 +45,6 @@ class EntityToJson:
         return document
 
     @staticmethod
-    def convert_entity_to_json_internal_static(
-        entity,
-        conventions: "DocumentConventions",
-        document_info: Union[None, DocumentInfo],
-        remove_identity_property: Optional[bool] = True,
-    ) -> dict:
-        json_node = Utils.entity_to_dict(entity, conventions.json_default_method)
-        EntityToJson.write_metadata(json_node, document_info)
-        if remove_identity_property:
-            EntityToJson.try_remove_identity_property_json(json_node)
-        return json_node
-
-    @staticmethod
     def convert_entity_to_json_static(
         entity, conventions: "DocumentConventions", document_info: Union[None, DocumentInfo]
     ):
@@ -70,21 +56,119 @@ class EntityToJson:
         json_node = Utils.entity_to_dict(entity, self._session.conventions.json_default_method)
         self.write_metadata(json_node, document_info)
         if remove_identity_property:
-            self.try_remove_identity_property_json(json_node)
+            self.try_remove_identity_property_from_json_dict(json_node, entity.__class__, self._session.conventions)
         return json_node
 
-    # todo: refactor this method, make it more useful/simple and less ugly (like this return...[0])
+    @staticmethod
+    def convert_entity_to_json_internal_static(
+        entity: object,
+        conventions: "DocumentConventions",
+        document_info: Union[None, DocumentInfo],
+        remove_identity_property: Optional[bool] = True,
+    ) -> Dict[str, Any]:
+        json_dict = Utils.entity_to_dict(entity, conventions.json_default_method)
+        EntityToJson.write_metadata(json_dict, document_info)
+        if remove_identity_property:
+            EntityToJson.try_remove_identity_property_from_json_dict(json_dict, entity.__class__, conventions)
+        return json_dict
+
     def convert_to_entity(self, entity_type: Type[_T], key: str, document: dict, track_entity: bool) -> _T:
         conventions = self._session.conventions
-        return self.convert_to_entity_static(document, entity_type, conventions, self._session)
+        return self.convert_to_entity_static(document, entity_type, conventions, self._session, key)
 
     @staticmethod
-    def populate_entity_static(entity, document: dict) -> None:
-        if entity is None:
-            raise ValueError("Entity cannot be None")
-        if document is None:
-            raise ValueError("Document cannot be None")
-        entity.__dict__.update(document)
+    def convert_to_entity_static(
+        document: dict,
+        object_type: [_T],
+        conventions: "DocumentConventions",
+        session_hook: Optional["InMemoryDocumentSessionOperations"] = None,
+        key: str = None,
+    ) -> _T:
+        # This method has two steps - extract the type (I), and then convert it into the entity (II)
+        # todo: Separate it into two different functions and isolate the return statements from the first part
+
+        # I. Extract the object type
+        metadata = document.get("@metadata")
+        document_deepcopy = deepcopy(document)
+
+        # 1. Get type from metadata
+        type_from_metadata = conventions.try_get_type_from_metadata(metadata)
+        is_projection = False
+        key = key or metadata.get(constants.Documents.Metadata.ID, None)
+
+        # 1.1 Check if passed object type (or extracted from metadata) is a dictionary and if document isn't a dict
+        if object_type == dict or (object_type is None and type_from_metadata == "builtins.dict"):
+            EntityToJson._invoke_after_conversion_to_entity_event(session_hook, key, object_type, document_deepcopy)
+            # todo: document_deepcopy["Id"] = metadata.get("@id", None) - consider adding id property
+            return document_deepcopy
+
+        # 1.2 If there's no object type in metadata
+        if type_from_metadata is None:
+            # 1.2.1 Try to set it with passed object type
+            if object_type is not None:
+                metadata["Raven-Python-Type"] = "{0}.{1}".format(object_type.__module__, object_type.__name__)
+            # 1.2.2 no type defined on document or during load, return a dict
+            else:
+                dyn = DynamicStructure(**document_deepcopy)
+                EntityToJson._invoke_after_conversion_to_entity_event(session_hook, key, object_type, document_deepcopy)
+                return dyn
+
+        # 2. There was a type in the metadata
+        else:
+            object_from_metadata = Utils.import_class(type_from_metadata)
+
+            # 2.0 Check if the user wants to cast dict to type
+            if object_from_metadata == dict and object_type != dict:
+                pass
+            # 2.1 Import was successful
+            elif object_from_metadata is not None:
+                # 2.1.1 Set object_type to successfully imported type/ from metadata inherits from passed object_type
+                if object_type is None or Utils.is_inherit(object_type, object_from_metadata):
+                    object_type = object_from_metadata
+
+                # 2.1.2 Passed type is not a type from metadata, neither there's no inheritance - probably projection
+                elif object_type is not object_from_metadata:
+                    is_projection = True
+                    if not all([name in object_from_metadata.__dict__ for name in object_type.__dict__]):
+                        raise exceptions.InvalidOperationException(
+                            f"Cannot covert document from type {object_from_metadata} to {object_type}"
+                        )
+
+        # We have object type set - it was either extracted or passed through args
+
+        # Fire before conversion to entity events
+        if session_hook:
+            session_hook.before_conversion_to_entity_invoke(
+                BeforeConversionToEntityEventArgs(session_hook, key, object_type, document_deepcopy)
+            )
+
+        # II. Conversion to entity part
+
+        # By custom defined 'from_json' serializer class method
+        # todo: make separate interface to do from_json
+        if "from_json" in object_type.__dict__ and inspect.ismethod(object_type.from_json):
+            entity = object_type.from_json(document_deepcopy)
+
+        # By projection
+        elif is_projection:
+            entity = DynamicStructure(**document_deepcopy)
+            entity.__class__ = object_type
+            try:
+                entity = Utils.initialize_object(document_deepcopy, object_type)
+            except TypeError as e:
+                raise InvalidOperationException("Probably projection error", e)
+
+        # Happy path - successful extraction of the type from metadata, if not - got object_type passed to arguments
+        else:
+            entity = Utils.convert_json_dict_to_object(document_deepcopy, object_type)
+
+        EntityToJson._invoke_after_conversion_to_entity_event(session_hook, key, object_type, document_deepcopy)
+
+        # Try to set Id
+        if "Id" in entity.__dict__:
+            entity.Id = metadata.get("@id", None)
+
+        return entity
 
     def populate_entity(self, entity, key: str, document: dict) -> None:
         if key is None:
@@ -94,17 +178,23 @@ class EntityToJson:
         self._session.generate_entity_id_on_the_client.try_set_identity(entity, key)
 
     @staticmethod
-    def try_remove_identity_property(document):
-        try:
-            del document.Id
-            return True
-        except AttributeError:
-            return False
+    def populate_entity_static(entity, document: dict) -> None:
+        if entity is None:
+            raise ValueError("Entity cannot be None")
+        if document is None:
+            raise ValueError("Document cannot be None")
+        entity.__dict__.update(document)
 
     @staticmethod
-    def try_remove_identity_property_json(document: Dict) -> bool:
+    def try_remove_identity_property_from_json_dict(
+        document: Dict[str, Any], entity_type: Type[Any], conventions: DocumentConventions
+    ) -> bool:
+        identity_property_name = conventions.get_identity_property_name(entity_type)
+        if identity_property_name is None:
+            return False
+
         try:
-            del document["Id"]
+            del document[identity_property_name]
             return True
         except KeyError:
             return False
@@ -166,99 +256,6 @@ class EntityToJson:
             session_hook.after_conversion_to_entity_invoke(
                 AfterConversionToEntityEventArgs(session_hook, key, object_type, document_deepcopy)
             )
-
-    @staticmethod
-    def convert_to_entity_static(
-        document: dict,
-        object_type: [_T],
-        conventions: "DocumentConventions",
-        session_hook: Optional["InMemoryDocumentSessionOperations"] = None,
-    ) -> _T:
-        # This method has two steps - extract the type (I), and then convert it into the entity (II)
-        # todo: Separate it into two different functions and isolate the return statements from the first part
-
-        # I. Extract the object type
-        metadata = document.get("@metadata")
-        document_deepcopy = deepcopy(document)
-
-        # 1. Get type from metadata
-        type_from_metadata = conventions.try_get_type_from_metadata(metadata)
-        is_projection = False
-        key = metadata.get(constants.Documents.Metadata.ID, None)
-
-        # Fire before conversion to entity events
-        if session_hook:
-            session_hook.before_conversion_to_entity_invoke(
-                BeforeConversionToEntityEventArgs(session_hook, key, object_type, document_deepcopy)
-            )
-
-        # 1.1 Check if passed object type (or extracted from metadata) is a dictionary and if document isn't a dict
-        if object_type == dict or (object_type is None and type_from_metadata == "builtins.dict"):
-            EntityToJson._invoke_after_conversion_to_entity_event(session_hook, key, object_type, document_deepcopy)
-            # todo: document_deepcopy["Id"] = metadata.get("@id", None) - consider adding id property
-            return document_deepcopy
-
-        # 1.2 If there's no object type in metadata
-        if type_from_metadata is None:
-            # 1.2.1 Try to set it with passed object type
-            if object_type is not None:
-                metadata["Raven-Python-Type"] = "{0}.{1}".format(object_type.__module__, object_type.__name__)
-            # 1.2.2 no type defined on document or during load, return a dict
-            else:
-                dyn = _DynamicStructure(**document_deepcopy)
-                EntityToJson._invoke_after_conversion_to_entity_event(session_hook, key, object_type, document_deepcopy)
-                return dyn
-
-        # 2. There was a type in the metadata
-        else:
-            object_from_metadata = Utils.import_class(type_from_metadata)
-
-            # 2.0 Check if the user wants to cast dict to type
-            if object_from_metadata == dict and object_type != dict:
-                pass
-            # 2.1 Import was successful
-            elif object_from_metadata is not None:
-                # 2.1.1 Set object_type to successfully imported type/ from metadata inherits from passed object_type
-                if object_type is None or Utils.is_inherit(object_type, object_from_metadata):
-                    object_type = object_from_metadata
-
-                # 2.1.2 Passed type is not a type from metadata, neither there's no inheritance - probably projection
-                elif object_type is not object_from_metadata:
-                    is_projection = True
-                    if not all([name in object_from_metadata.__dict__ for name in object_type.__dict__]):
-                        raise exceptions.InvalidOperationException(
-                            f"Cannot covert document from type {object_from_metadata} to {object_type}"
-                        )
-
-        # We have object type set - it was either extracted or passed through args
-
-        # II. Conversion to entity part
-
-        # By custom defined 'from_json' serializer class method
-        # todo: make separate interface to do from_json
-        if "from_json" in object_type.__dict__ and inspect.ismethod(object_type.from_json):
-            entity = object_type.from_json(document_deepcopy)
-
-        # By projection
-        elif is_projection:
-            entity = _DynamicStructure(**document_deepcopy)
-            entity.__class__ = object_type
-            try:
-                entity = Utils.initialize_object(document_deepcopy, object_type)
-            except TypeError as e:
-                raise InvalidOperationException("Probably projection error", e)
-
-        # Happy path - successful extraction of the type from metadata, if not - got object_type passed to arguments
-        else:
-            entity = Utils.convert_json_dict_to_object(document_deepcopy, object_type)
-
-        EntityToJson._invoke_after_conversion_to_entity_event(session_hook, key, object_type, document_deepcopy)
-
-        # Try to set Id
-        if "Id" in entity.__dict__:
-            entity.Id = metadata.get("@id", None)
-
-        return entity
 
     def remove_from_missing(self, entity):
         try:

@@ -5,7 +5,7 @@ import threading
 from abc import abstractmethod, ABC
 from datetime import timedelta, datetime
 from enum import Enum
-from typing import Dict, List, Tuple, Callable, Union, Optional, Generic, Type
+from typing import Dict, List, Tuple, Callable, Union, Optional, Generic, Type, Any, TYPE_CHECKING
 
 import inflect
 
@@ -24,6 +24,11 @@ inflect.def_classical["names"] = False
 inflector = inflect.engine()
 
 _T = TypeVar("_T")
+
+if TYPE_CHECKING:
+    from ravendb.documents.session.document_session_operations.in_memory_document_session_operations import (
+        InMemoryDocumentSessionOperations,
+    )
 
 
 class DocumentConventions(object):
@@ -63,7 +68,8 @@ class DocumentConventions(object):
 
         # Utilities
         self.document_id_generator: Optional[Callable[[str, object], str]] = None
-        self._find_identity_property = lambda q: q.__name__ == "key"
+        self._get_identity_property_name: Callable[[Type[Any]], str] = lambda type_: "Id"
+        self._id_property_name_cache: Dict[Type, str] = {}
         self._find_python_class: Optional[Callable[[str, Dict], str]] = None
         self._find_collection_name: Callable[[Type], str] = self.default_get_collection_name
         self._find_collection_name_for_dict: Callable[[str], str] = self.default_get_collection_name_for_dict
@@ -106,7 +112,7 @@ class DocumentConventions(object):
 
     @find_collection_name.setter
     def find_collection_name(self, value) -> None:
-        self.__assert_not_frozen()
+        self._assert_not_frozen()
         self._find_collection_name = value
 
     @property
@@ -122,7 +128,7 @@ class DocumentConventions(object):
 
     @find_python_class.setter
     def find_python_class(self, value: Callable[[str, Dict], str]):
-        self.__assert_not_frozen()
+        self._assert_not_frozen()
         self._find_python_class = value
 
     def get_python_class(self, key: str, document: Dict) -> str:
@@ -134,7 +140,7 @@ class DocumentConventions(object):
 
     @transform_class_collection_name_to_document_id_prefix.setter
     def transform_class_collection_name_to_document_id_prefix(self, value: Callable[[str], str]) -> None:
-        self.__assert_not_frozen()
+        self._assert_not_frozen()
         self._transform_class_collection_name_to_document_id_prefix = value
 
     @property
@@ -167,7 +173,7 @@ class DocumentConventions(object):
 
     @find_python_class_name.setter
     def find_python_class_name(self, value) -> None:
-        self.__assert_not_frozen()
+        self._assert_not_frozen()
         self._find_python_class_name = value
 
     @property
@@ -176,7 +182,7 @@ class DocumentConventions(object):
 
     @should_ignore_entity_changes.setter
     def should_ignore_entity_changes(self, value: ShouldIgnoreEntityChanges) -> None:
-        self.__assert_not_frozen()
+        self._assert_not_frozen()
         self._should_ignore_entity_changes = value
 
     @property
@@ -185,7 +191,7 @@ class DocumentConventions(object):
 
     @load_balancer_context_seed.setter
     def load_balancer_context_seed(self, value: int):
-        self.__assert_not_frozen()
+        self._assert_not_frozen()
         self._load_balancer_context_seed = value
 
     @property
@@ -194,7 +200,7 @@ class DocumentConventions(object):
 
     @load_balance_behavior.setter
     def load_balance_behavior(self, value: LoadBalanceBehavior):
-        self.__assert_not_frozen()
+        self._assert_not_frozen()
         self._load_balance_behavior = value
 
     @property
@@ -203,7 +209,7 @@ class DocumentConventions(object):
 
     @read_balance_behavior.setter
     def read_balance_behavior(self, value: ReadBalanceBehavior):
-        self.__assert_not_frozen()
+        self._assert_not_frozen()
         self._read_balance_behavior = value
 
     @property
@@ -216,7 +222,7 @@ class DocumentConventions(object):
 
     @disable_atomic_document_writes_in_cluster_wide_transaction.setter
     def disable_atomic_document_writes_in_cluster_wide_transaction(self, value: bool):
-        self.__assert_not_frozen()
+        self._assert_not_frozen()
         self._disable_atomic_document_writes_in_cluster_wide_transaction = value
 
     @staticmethod
@@ -355,7 +361,7 @@ class DocumentConventions(object):
 
         return field_name
 
-    def __assert_not_frozen(self) -> None:
+    def _assert_not_frozen(self) -> None:
         if self._frozen:
             raise RuntimeError(
                 "Conventions has been frozen after documentStore.initialize()" " and no changes can be applied to them"
@@ -370,7 +376,7 @@ class DocumentConventions(object):
         cloned._save_enums_as_integers = self._save_enums_as_integers
         cloned.identity_parts_separator = self.identity_parts_separator
         cloned.disable_topology_updates = self.disable_topology_updates
-        cloned._find_identity_property = self._find_identity_property
+        cloned._get_identity_property_name = self._get_identity_property_name
 
         cloned.document_id_generator = self.document_id_generator
 
@@ -384,6 +390,19 @@ class DocumentConventions(object):
         cloned._read_balance_behavior = self._read_balance_behavior
         cloned._load_balance_behavior = self._load_balance_behavior
         self._max_http_cache_size = self._max_http_cache_size
+        return cloned
+
+    def get_identity_property_name(self, object_type: Type[Any]) -> Optional[str]:
+        # Check the cache first
+        if object_type in self._id_property_name_cache:
+            return self._id_property_name_cache[object_type]
+
+        id_property_name = self._get_identity_property_name(object_type)
+
+        # Cache the result
+        self._id_property_name_cache[object_type] = id_property_name
+
+        return id_property_name
 
     def update_from(self, configuration: ClientConfiguration):
         if configuration.disabled and self._original_configuration is None:
@@ -479,7 +498,7 @@ class DocumentConventions(object):
 
     @staticmethod
     def default_transform_collection_name_to_document_id_prefix(collection_name: str) -> str:
-        upper_count = len(list(filter(str.isupper, collection_name)))
+        upper_count = len(list(filter(str.isupper, [char for char in collection_name])))
         if upper_count <= 1:
             return collection_name.lower()
 

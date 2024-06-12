@@ -244,7 +244,7 @@ class CaseInsensitiveSet(set):
             self.add(v)
 
 
-class _DynamicStructure(object):
+class DynamicStructure(object):
     def __init__(self, **entries):
         self.__dict__.update(entries)
 
@@ -458,7 +458,7 @@ class Utils(object):
                 o = object_type(**initialize_dict)
             else:
                 raise TypeError(
-                    f"Couldn't initialize object of type '{object_type.__name__}' using dict '{obj}'"
+                    f"Couldn't initialize object of type '{object_type.__name__}' using dict '{initialize_dict}'"
                 ) from e
         if set_needed:
             for key, value in obj.items():
@@ -484,17 +484,17 @@ class Utils(object):
     @staticmethod
     def convert_json_dict_to_object(
         json_dict: dict, object_type: Optional[Type[_T]] = None, nested_object_types: Optional[Dict[str, type]] = None
-    ) -> Union[_DynamicStructure, _T]:
+    ) -> Union[DynamicStructure, _T]:
         if object_type == dict:
             return json_dict
 
         if object_type is None:
-            return _DynamicStructure(**json_dict)
+            return DynamicStructure(**json_dict)
 
         if nested_object_types is None:
             return Utils.initialize_object(json_dict, object_type, True)
 
-        entity = _DynamicStructure(**json_dict)
+        entity = DynamicStructure(**json_dict)
         entity.__class__ = object_type
         entity = Utils.initialize_object(json_dict, object_type, True)
         if nested_object_types:
@@ -546,7 +546,7 @@ class Utils(object):
         conventions: "DocumentConventions",
         events,
         nested_object_types=None,
-    ) -> Union[_T, _DynamicStructure]:
+    ) -> Union[_T, DynamicStructure]:
         if document is None:
             return None
         metadata = document.get("@metadata")
@@ -564,7 +564,7 @@ class Utils(object):
             if object_type is not None:
                 metadata["Raven-Python-Type"] = "{0}.{1}".format(object_type.__module__, object_type.__name__)
             else:  # no type defined on document or during load, return a dict
-                dyn = _DynamicStructure(**document)
+                dyn = DynamicStructure(**document)
                 events.after_conversion_to_entity(dyn, document, metadata)
                 return dyn, metadata, original_document
         else:
@@ -585,7 +585,7 @@ class Utils(object):
         if nested_object_types is None and mapper:
             entity = create_entity_with_mapper(document, mapper, object_type)
         else:
-            entity = _DynamicStructure(**document)
+            entity = DynamicStructure(**document)
             entity.__class__ = object_type
 
             entity = Utils.initialize_object(document, object_type)

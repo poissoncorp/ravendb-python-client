@@ -122,7 +122,7 @@ class AbstractDocumentQuery(Generic[_T]):
         self._from_token = FromToken.create(index_name, collection_name, from_alias)
         self._declare_tokens = declare_tokens
         self._load_tokens = load_tokens
-        self._the_session = session
+        self._the_session: "InMemoryDocumentSessionOperations" = session
         self.__conventions = DocumentConventions() if session is None else session.conventions
         self.is_project_into = is_project_into if is_project_into is not None else False
 
@@ -313,7 +313,7 @@ class AbstractDocumentQuery(Generic[_T]):
         self._is_group_by = True
 
         for item in fields:
-            field_name = self.__ensure_valid_field_name(item.field, False)
+            field_name = self._ensure_valid_field_name(item.field, False)
             self._group_by_tokens.append(GroupByToken.create(field_name, item.method))
 
     def _group_by_key(self, field_name: str, projected_name: str = None) -> None:
@@ -334,7 +334,7 @@ class AbstractDocumentQuery(Generic[_T]):
         self.__assert_no_raw_query()
         self._is_group_by = True
 
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
         self._select_tokens.append(GroupBySumToken.create(field_name, projected_name))
 
     def _group_by_count(self, projected_name: Optional[str] = None):
@@ -393,7 +393,7 @@ class AbstractDocumentQuery(Generic[_T]):
         self._start = count
 
     def _where_lucene(self, field_name: str, where_clause: str, exact: bool) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -445,7 +445,7 @@ class AbstractDocumentQuery(Generic[_T]):
             self._where_not_equals(where_params=params)
             return
 
-        params.field_name = self.__ensure_valid_field_name(params.field_name, params.nested_path)
+        params.field_name = self._ensure_valid_field_name(params.field_name, params.nested_path)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -522,7 +522,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
 
-        where_params.field_name = self.__ensure_valid_field_name(where_params.field_name, where_params.nested_path)
+        where_params.field_name = self._ensure_valid_field_name(where_params.field_name, where_params.nested_path)
 
         if self.__if_value_is_method(WhereOperator.NOT_EQUALS, where_params, tokens):
             return
@@ -539,7 +539,7 @@ class AbstractDocumentQuery(Generic[_T]):
         self._negate = not self._negate
 
     def _where_in(self, field_name: str, values: Collection, exact: Optional[bool] = False) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -563,7 +563,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
 
-        where_params.field_name = self.__ensure_valid_field_name(where_params.field_name, where_params.nested_path)
+        where_params.field_name = self._ensure_valid_field_name(where_params.field_name, where_params.nested_path)
         self.__negate_if_needed(tokens, where_params.field_name)
 
         where_token = WhereToken.create(
@@ -585,7 +585,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
 
-        where_params.field_name = self.__ensure_valid_field_name(where_params.field_name, where_params.nested_path)
+        where_params.field_name = self._ensure_valid_field_name(where_params.field_name, where_params.nested_path)
         self.__negate_if_needed(tokens, where_params.field_name)
 
         where_token = WhereToken.create(
@@ -597,7 +597,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens.append(where_token)
 
     def _where_between(self, field_name: str, start: object, end: object, exact: Optional[bool] = False) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -627,7 +627,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens.append(where_token)
 
     def _where_greater_than(self, field_name: str, value: object, exact: Optional[bool] = False) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -646,7 +646,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens.append(where_token)
 
     def _where_greater_than_or_equal(self, field_name: str, value: object, exact: Optional[bool] = False) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -665,7 +665,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens.append(where_token)
 
     def _where_less_than(self, field_name: str, value: object, exact: Optional[bool] = False) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -684,7 +684,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens.append(where_token)
 
     def _where_less_than_or_equal(self, field_name: str, value: object, exact: Optional[bool] = False) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -704,7 +704,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens.append(where_token)
 
     def _where_regex(self, field_name: str, pattern: str) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -814,7 +814,7 @@ class AbstractDocumentQuery(Generic[_T]):
             raise ValueError("Sorter name cannot be None or whitespace")
 
         self.__assert_no_raw_query()
-        f = self.__ensure_valid_field_name(field, False)
+        f = self._ensure_valid_field_name(field, False)
         self._order_by_tokens.append(OrderByToken.create_ascending(f, sorter_name_or_ordering_type))
 
     def _order_by_descending(
@@ -825,7 +825,7 @@ class AbstractDocumentQuery(Generic[_T]):
             raise ValueError("Sorter name cannot be None or whitespace")
 
         self.__assert_no_raw_query()
-        f = self.__ensure_valid_field_name(field, False)
+        f = self._ensure_valid_field_name(field, False)
         self._order_by_tokens.append(OrderByToken.create_descending(f, sorter_name_or_ordering_type))
 
     def _order_by_score(self) -> None:
@@ -871,7 +871,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
 
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
         self.__negate_if_needed(tokens, field_name)
 
         where_token = WhereToken.create(
@@ -992,7 +992,7 @@ class AbstractDocumentQuery(Generic[_T]):
         raise RuntimeError("Cannot add INTERSECT at this point.")
 
     def _where_exists(self, field_name: str) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -1001,7 +1001,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens.append(WhereToken.create(WhereOperator.EXISTS, field_name, None))
 
     def _contains_any(self, field_name: str, values: Collection) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -1017,7 +1017,7 @@ class AbstractDocumentQuery(Generic[_T]):
         tokens.append(where_token)
 
     def _contains_all(self, field_name: str, values: Collection) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -1191,11 +1191,13 @@ class AbstractDocumentQuery(Generic[_T]):
 
         tokens.append(NegateToken.instance())
 
-    def __ensure_valid_field_name(self, field_name, is_nested_path) -> str:
+    def _ensure_valid_field_name(self, field_name, is_nested_path) -> str:
         if not self._the_session or self._the_session.conventions is None or is_nested_path or self._is_group_by:
             return QueryFieldUtil.escape_if_necessary(field_name, is_nested_path)
-
-        # todo: root types, checking if identity property name isnt the same compared to field_name
+        for root_type in self._root_types:
+            identity_property_name = self._the_session.conventions.get_identity_property_name(root_type)
+            if identity_property_name is not None and identity_property_name == field_name:
+                return constants.Documents.Indexing.Fields.DOCUMENT_ID_FIELD_NAME
         return QueryFieldUtil.escape_if_necessary(field_name)
 
     def __transform_value(self, where_params: WhereParams, for_range: Optional[bool] = False) -> object:
@@ -1362,7 +1364,7 @@ class AbstractDocumentQuery(Generic[_T]):
         radius_units: SpatialUnits,
         dist_error_percent: float,
     ) -> None:
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -1390,7 +1392,7 @@ class AbstractDocumentQuery(Generic[_T]):
         if not self._from_token.dynamic:
             raise RuntimeError(
                 f"Cannot execute query method '{method_name}'. "
-                f"Field '{dynamic_field.to_field(self.__ensure_valid_field_name)}' cannot be used when "
+                f"Field '{dynamic_field.to_field(self._ensure_valid_field_name)}' cannot be used when "
                 f"static index '{self._from_token.index_name}' is queried. Dynamic spatial fields can "
                 f"only be used with dynamic queries, for static index queries please use valid spatial "
                 f"fields defined in index definition."
@@ -1399,7 +1401,7 @@ class AbstractDocumentQuery(Generic[_T]):
     def _spatial_with_criteria(self, field_or_field_name: Union[str, DynamicSpatialField], criteria: SpatialCriteria):
         is_string = isinstance(field_or_field_name, str)
         if is_string:
-            field_or_field_name = self.__ensure_valid_field_name(field_or_field_name, False)
+            field_or_field_name = self._ensure_valid_field_name(field_or_field_name, False)
         elif issubclass(field_or_field_name.__class__, DynamicSpatialField):
             self.__assert_is_dynamic_query(field_or_field_name, "spatial")
         else:
@@ -1414,7 +1416,7 @@ class AbstractDocumentQuery(Generic[_T]):
 
         tokens.append(
             criteria.to_query_token(
-                field_or_field_name if is_string else field_or_field_name.to_field(self.__ensure_valid_field_name),
+                field_or_field_name if is_string else field_or_field_name.to_field(self._ensure_valid_field_name),
                 self.__add_query_parameter,
             )
         )
@@ -1427,7 +1429,7 @@ class AbstractDocumentQuery(Generic[_T]):
         units: SpatialUnits,
         dist_error_percent: float,
     ):
-        field_name = self.__ensure_valid_field_name(field_name, False)
+        field_name = self._ensure_valid_field_name(field_name, False)
 
         tokens = self.__get_current_where_tokens()
         self.__append_operator_if_needed(tokens)
@@ -1469,7 +1471,7 @@ class AbstractDocumentQuery(Generic[_T]):
                 raise ValueError("Field cannot be None")
             self.__assert_is_dynamic_query(field_or_field_name, "orderByDistance")
             round_factor = field_or_field_name.round_factor
-            field_name = f"'{field_or_field_name.to_field(self.__ensure_valid_field_name)}'"
+            field_name = f"'{field_or_field_name.to_field(self._ensure_valid_field_name)}'"
         else:
             field_name = field_or_field_name
 
@@ -1496,7 +1498,7 @@ class AbstractDocumentQuery(Generic[_T]):
                 raise ValueError("Field cannot be None")
             self.__assert_is_dynamic_query(field_or_field_name, "orderByDistance")
             round_factor = field_or_field_name.round_factor
-            field_name = f"'{field_or_field_name.to_field(self.__ensure_valid_field_name)}'"
+            field_name = f"'{field_or_field_name.to_field(self._ensure_valid_field_name)}'"
         else:
             round_factor = self.__add_query_parameter(round_factor) if round_factor != 0 else None
             field_name = field_or_field_name
@@ -1520,7 +1522,7 @@ class AbstractDocumentQuery(Generic[_T]):
                 raise ValueError("Field cannot be None")
             self.__assert_is_dynamic_query(field_or_field_name, "orderByDistanceDescending")
             round_factor = field_or_field_name.round_factor
-            field_name = f"'{field_or_field_name.to_field(self.__ensure_valid_field_name)}'"
+            field_name = f"'{field_or_field_name.to_field(self._ensure_valid_field_name)}'"
         else:
             round_factor = self.__add_query_parameter(round_factor) if round_factor != 0 else None
             field_name = field_or_field_name
@@ -1549,7 +1551,7 @@ class AbstractDocumentQuery(Generic[_T]):
                 raise ValueError("Field cannot be None")
             self.__assert_is_dynamic_query(field_or_field_name, "orderByDistanceDescending")
             round_factor = field_or_field_name.round_factor
-            field_name = f"'{field_or_field_name.to_field(self.__ensure_valid_field_name)}'"
+            field_name = f"'{field_or_field_name.to_field(self._ensure_valid_field_name)}'"
         else:
             round_factor = self.__add_query_parameter(round_factor) if round_factor != 0 else None
             field_name = field_or_field_name
@@ -2048,9 +2050,11 @@ class DocumentQuery(Generic[_T], AbstractDocumentQuery[_T]):
             fields = query_data.fields
 
             if not self._is_group_by:
-                # todo: conventions.getIdentityProperty(result_class) - now I assume that identity property is always Id
-                if "Id" in fields:
-                    fields[fields.index("Id")] = constants.Documents.Indexing.Fields.DOCUMENT_ID_FIELD_NAME
+                identity_property_name = self.conventions.get_identity_property_name(result_class)
+                if identity_property_name in fields:
+                    fields[fields.index(identity_property_name)] = (
+                        constants.Documents.Indexing.Fields.DOCUMENT_ID_FIELD_NAME
+                    )
 
             source_alias = self._get_source_alias_if_exists(result_class, query_data, fields)
             new_fields_to_fetch = FieldsToFetchToken.create(
