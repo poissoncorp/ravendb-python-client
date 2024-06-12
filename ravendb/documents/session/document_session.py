@@ -739,6 +739,12 @@ class DocumentSession(InMemoryDocumentSessionOperations):
         def document_query_from_index_type(self, index_type: Type[_TIndex], object_type: Type[_T]) -> DocumentQuery[_T]:
             return self._session.document_query_from_index_type(index_type, object_type)
 
+        def ignore_changes_for(self, entity: object) -> None:
+            self._session.ignore_changes_for(entity)
+
+        def has_changes(self) -> bool:
+            return self._session.has_changes()
+
         def refresh(self, entity: object) -> object:
             document_info = self._session._documents_by_entity.get(entity)
             if document_info is None:
