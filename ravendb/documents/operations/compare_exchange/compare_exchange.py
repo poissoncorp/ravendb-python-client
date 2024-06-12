@@ -9,7 +9,7 @@ from ravendb.documents.commands.batches import PutCompareExchangeCommandData, De
 from ravendb.documents.session.document_session_operations.misc import _update_metadata_modifications
 from ravendb.exceptions.raven_exceptions import RavenException
 from ravendb.json.metadata_as_dictionary import MetadataAsDictionary
-from ravendb.documents.session.entity_to_json import EntityToJson
+from ravendb.documents.session.entity_to_json import EntityToJsonStatic
 from ravendb.tools.utils import Utils
 
 _T = TypeVar("_T")
@@ -148,7 +148,7 @@ class CompareExchangeSessionValue(Generic[_T]):
             if not self.__value:
                 return None
 
-            entity = EntityToJson.convert_entity_to_json_internal_static(self.__value.value, conventions, None, False)
+            entity = EntityToJsonStatic.convert_entity_to_json(self.__value.value, conventions, None, False)
 
             entity_json = entity if isinstance(entity, dict) else None
             metadata = (
@@ -229,7 +229,7 @@ class CompareExchangeSessionValue(Generic[_T]):
             self.__value.index = self._index
 
             if self.__value.value is not None:
-                EntityToJson.populate_entity_static(self.__value.value, value.value)
+                EntityToJsonStatic.populate_entity(self.__value.value, value.value)
 
     @staticmethod
     def prepare_metadata_for_put(

@@ -13,7 +13,7 @@ from socket import socket
 from typing import TypeVar, Generic, Type, Optional, Callable, Dict, List, TYPE_CHECKING, Any
 
 from ravendb.primitives import constants
-from ravendb.documents.session.entity_to_json import EntityToJson
+from ravendb.documents.session.entity_to_json import EntityToJsonStatic
 from ravendb.documents.commands.subscriptions import GetTcpInfoForRemoteTaskCommand, TcpConnectionInfo
 from ravendb.documents.session.document_session_operations.in_memory_document_session_operations import (
     InMemoryDocumentSessionOperations,
@@ -1037,16 +1037,16 @@ class SubscriptionBatch(Generic[_T]):
                         current = cur_doc.get("Current")
                         revision = Revision()
                         if current:
-                            revision.current = EntityToJson.convert_to_entity_by_key_static(
+                            revision.current = EntityToJsonStatic.convert_to_entity_by_key(
                                 self._object_type, key, current, self._request_executor.conventions
                             )
                         if previous:
-                            revision.previous = EntityToJson.convert_to_entity_static(
+                            revision.previous = EntityToJsonStatic.convert_to_entity(
                                 self._object_type, key, previous, self._request_executor.conventions
                             )
                         instance = revision
                     else:
-                        instance = EntityToJson.convert_to_entity_by_key_static(
+                        instance = EntityToJsonStatic.convert_to_entity_by_key(
                             self._object_type, key, cur_doc, self._request_executor.conventions
                         )
 

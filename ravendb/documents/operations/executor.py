@@ -3,7 +3,7 @@ from __future__ import annotations
 import http
 from typing import Union, Optional, TYPE_CHECKING, TypeVar
 
-from ravendb.documents.session.entity_to_json import EntityToJson
+from ravendb.documents.session.entity_to_json import EntityToJsonStatic
 from ravendb.documents.operations.patch import PatchOperation, PatchStatus
 from ravendb.documents.operations.definitions import (
     IOperation,
@@ -90,7 +90,7 @@ class OperationExecutor:
 
         try:
             result.status = command.result.status
-            result.document = EntityToJson.convert_to_entity_static(
+            result.document = EntityToJsonStatic.convert_to_entity(
                 command.result.modified_document, entity_class, self._request_executor.conventions
             )
             return result

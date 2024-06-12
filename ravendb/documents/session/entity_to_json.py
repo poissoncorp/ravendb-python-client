@@ -32,56 +32,114 @@ class EntityToJson:
     def missing_dictionary(self):
         return self._missing_dictionary
 
+    # Converting objects to JSON Dicts
+    # ================================
     def convert_entity_to_json(self, entity: object, document_info: DocumentInfo) -> dict:
-        if document_info is not None:
+        should_invoke_events = document_info is not None
+        if should_invoke_events:
             self._session.before_conversion_to_document_invoke(
                 BeforeConversionToDocumentEventArgs(document_info.key, entity, self._session)
             )
+
         document = EntityToJson._convert_entity_to_json_internal(self, entity, document_info, True)
-        if document_info is not None:
+
+        if should_invoke_events:
             self._session.after_conversion_to_document_invoke(
                 AfterConversionToDocumentEventArgs(self._session, document_info.key, entity, document)
             )
         return document
 
-    @staticmethod
-    def convert_entity_to_json_static(
-        entity, conventions: "DocumentConventions", document_info: Union[None, DocumentInfo]
-    ):
-        return EntityToJson.convert_entity_to_json_internal_static(entity, conventions, document_info)
-
     def _convert_entity_to_json_internal(
         self, entity: object, document_info: DocumentInfo, remove_identity_property: bool = False
     ) -> dict:
         json_node = Utils.entity_to_dict(entity, self._session.conventions.json_default_method)
-        self.write_metadata(json_node, document_info)
+        EntityToJsonUtils.write_metadata(json_node, document_info)
+
         if remove_identity_property:
-            self.try_remove_identity_property_from_json_dict(json_node, entity.__class__, self._session.conventions)
+            EntityToJsonUtils.try_remove_identity_property_from_json_dict(
+                json_node, entity.__class__, self._session.conventions
+            )
+
         return json_node
 
-    @staticmethod
-    def convert_entity_to_json_internal_static(
-        entity: object,
-        conventions: "DocumentConventions",
-        document_info: Union[None, DocumentInfo],
-        remove_identity_property: Optional[bool] = True,
-    ) -> Dict[str, Any]:
-        json_dict = Utils.entity_to_dict(entity, conventions.json_default_method)
-        EntityToJson.write_metadata(json_dict, document_info)
-        if remove_identity_property:
-            EntityToJson.try_remove_identity_property_from_json_dict(json_dict, entity.__class__, conventions)
-        return json_dict
-
+    # Converting JSON Dicts to objects
+    # ================================
     def convert_to_entity(self, entity_type: Type[_T], key: str, document: dict, track_entity: bool) -> _T:
         conventions = self._session.conventions
-        return self.convert_to_entity_static(document, entity_type, conventions, self._session, key)
+        return EntityToJsonStatic.convert_to_entity(document, entity_type, conventions, self._session, key)
+
+    # Miscellaneous
+    # =============
+    def populate_entity(self, entity: object, key: str, document: Dict[str, Any]) -> None:
+        if key is None:
+            raise ValueError("Key cannot be None")
+
+        EntityToJsonStatic.populate_entity(entity, document)
+        self._session.generate_entity_id_on_the_client.try_set_identity(entity, key)
+
+    def remove_from_missing(self, entity):
+        try:
+            del self.missing_dictionary[entity]
+        except KeyError:
+            pass
+
+    def clear(self):
+        self.missing_dictionary.clear()
+
+
+class EntityToJsonStatic:
+    @staticmethod
+    def populate_entity(entity: object, document: Dict[str, Any]) -> None:
+        if entity is None:
+            raise ValueError("Entity cannot be None")
+        if document is None:
+            raise ValueError("Document cannot be None")
+        entity.__dict__.update(document)
 
     @staticmethod
-    def convert_to_entity_static(
+    def convert_entity_to_json(
+        entity: object,
+        conventions: "DocumentConventions",
+        document_info: Optional[DocumentInfo],
+        remove_identity_property: Optional[bool] = False,
+    ) -> Dict[str, Any]:
+        json_dict = Utils.entity_to_dict(entity, conventions.json_default_method)
+        EntityToJsonUtils.write_metadata(json_dict, document_info)
+
+        if remove_identity_property:
+            EntityToJsonUtils.try_remove_identity_property_from_json_dict(json_dict, entity.__class__, conventions)
+
+        return json_dict
+
+    @staticmethod
+    def convert_to_entity_by_key(
+        entity_class: Type[_T], key: str, document: Dict, conventions: DocumentConventions
+    ) -> _T:
+        if entity_class is None:
+            return document
+        try:
+            default_value = Utils.get_default_value(entity_class)
+            entity = default_value
+
+            document_type = conventions.get_python_class(key, document)
+            if document_type is not None:
+                clazz = Utils.import_class(document_type)
+                if clazz is not None and issubclass(clazz, entity_class):
+                    entity = EntityToJsonStatic.convert_to_entity(document, clazz, conventions)
+
+            if entity is None:
+                entity = EntityToJsonStatic.convert_to_entity(document, entity_class, conventions)
+
+            return entity
+        except Exception as e:
+            raise RuntimeError(f"Could not convert document {key} to entity of type {entity_class}", e)
+
+    @staticmethod
+    def convert_to_entity(
         document: dict,
         object_type: [_T],
         conventions: "DocumentConventions",
-        session_hook: Optional["InMemoryDocumentSessionOperations"] = None,
+        session: Optional["InMemoryDocumentSessionOperations"] = None,
         key: str = None,
     ) -> _T:
         # This method has two steps - extract the type (I), and then convert it into the entity (II)
@@ -98,8 +156,7 @@ class EntityToJson:
 
         # 1.1 Check if passed object type (or extracted from metadata) is a dictionary and if document isn't a dict
         if object_type == dict or (object_type is None and type_from_metadata == "builtins.dict"):
-            EntityToJson._invoke_after_conversion_to_entity_event(session_hook, key, object_type, document_deepcopy)
-            # todo: document_deepcopy["Id"] = metadata.get("@id", None) - consider adding id property
+            EntityToJsonUtils.invoke_after_conversion_to_entity_event(session, key, object_type, document_deepcopy)
             return document_deepcopy
 
         # 1.2 If there's no object type in metadata
@@ -110,7 +167,7 @@ class EntityToJson:
             # 1.2.2 no type defined on document or during load, return a dict
             else:
                 dyn = DynamicStructure(**document_deepcopy)
-                EntityToJson._invoke_after_conversion_to_entity_event(session_hook, key, object_type, document_deepcopy)
+                EntityToJsonUtils.invoke_after_conversion_to_entity_event(session, key, object_type, document_deepcopy)
                 return dyn
 
         # 2. There was a type in the metadata
@@ -137,9 +194,9 @@ class EntityToJson:
         # We have object type set - it was either extracted or passed through args
 
         # Fire before conversion to entity events
-        if session_hook:
-            session_hook.before_conversion_to_entity_invoke(
-                BeforeConversionToEntityEventArgs(session_hook, key, object_type, document_deepcopy)
+        if session:
+            session.before_conversion_to_entity_invoke(
+                BeforeConversionToEntityEventArgs(session, key, object_type, document_deepcopy)
             )
 
         # II. Conversion to entity part
@@ -162,28 +219,28 @@ class EntityToJson:
         else:
             entity = Utils.convert_json_dict_to_object(document_deepcopy, object_type)
 
-        EntityToJson._invoke_after_conversion_to_entity_event(session_hook, key, object_type, document_deepcopy)
+        EntityToJsonUtils.invoke_after_conversion_to_entity_event(session, key, object_type, document_deepcopy)
 
-        # Try to set Id
-        if "Id" in entity.__dict__:
-            entity.Id = metadata.get("@id", None)
+        # Try to set identity property
+        identity_property_name = conventions.get_identity_property_name(object_type)
+        if identity_property_name in entity.__dict__:
+            entity.__dict__[identity_property_name] = metadata.get("@id", None)
 
         return entity
 
-    def populate_entity(self, entity, key: str, document: dict) -> None:
-        if key is None:
-            raise ValueError("Key cannot be None")
 
-        EntityToJson.populate_entity_static(entity, document)
-        self._session.generate_entity_id_on_the_client.try_set_identity(entity, key)
-
+class EntityToJsonUtils:
     @staticmethod
-    def populate_entity_static(entity, document: dict) -> None:
-        if entity is None:
-            raise ValueError("Entity cannot be None")
-        if document is None:
-            raise ValueError("Document cannot be None")
-        entity.__dict__.update(document)
+    def invoke_after_conversion_to_entity_event(
+        session: Optional["InMemoryDocumentSessionOperations"],
+        key: str,
+        object_type: Optional[_T],
+        document_deepcopy: dict,
+    ):
+        if session:
+            session.after_conversion_to_entity_invoke(
+                AfterConversionToEntityEventArgs(session, key, object_type, document_deepcopy)
+            )
 
     @staticmethod
     def try_remove_identity_property_from_json_dict(
@@ -221,47 +278,3 @@ class EntityToJson:
 
         if set_metadata:
             json_node.update({constants.Documents.Metadata.KEY: metadata_node})
-
-    @staticmethod
-    def convert_to_entity_by_key_static(
-        entity_class: Type[_T], key: str, document: Dict, conventions: DocumentConventions
-    ) -> _T:
-        if entity_class is None:
-            return document
-        try:
-            default_value = Utils.get_default_value(entity_class)
-            entity = default_value
-
-            document_type = conventions.get_python_class(key, document)
-            if document_type is not None:
-                clazz = Utils.import_class(document_type)
-                if clazz is not None and issubclass(clazz, entity_class):
-                    entity = EntityToJson.convert_to_entity_static(document, clazz, conventions)
-
-            if entity is None:
-                entity = EntityToJson.convert_to_entity_static(document, entity_class, conventions)
-
-            return entity
-        except Exception as e:
-            raise RuntimeError(f"Could not convert document {key} to entity of type {entity_class}", e)
-
-    @staticmethod
-    def _invoke_after_conversion_to_entity_event(
-        session_hook: Optional["InMemoryDocumentSessionOperations"],
-        key: str,
-        object_type: Optional[_T],
-        document_deepcopy: dict,
-    ):
-        if session_hook:
-            session_hook.after_conversion_to_entity_invoke(
-                AfterConversionToEntityEventArgs(session_hook, key, object_type, document_deepcopy)
-            )
-
-    def remove_from_missing(self, entity):
-        try:
-            self.missing_dictionary[entity]
-        except KeyError:
-            pass
-
-    def clear(self):
-        self.missing_dictionary.clear()
