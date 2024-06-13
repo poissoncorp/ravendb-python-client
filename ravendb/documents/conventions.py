@@ -68,7 +68,7 @@ class DocumentConventions(object):
 
         # Utilities
         self.document_id_generator: Optional[Callable[[str, object], str]] = None
-        self._get_identity_property_name: Callable[[Type[Any]], str] = lambda type_: "Id"
+        self._find_identity_property_name: Callable[[Type[Any]], str] = lambda type_: "Id"
         self._id_property_name_cache: Dict[Type, str] = {}
         self._find_python_class: Optional[Callable[[str, Dict], str]] = None
         self._find_collection_name: Callable[[Type], str] = self.default_get_collection_name
@@ -225,6 +225,14 @@ class DocumentConventions(object):
         self._assert_not_frozen()
         self._disable_atomic_document_writes_in_cluster_wide_transaction = value
 
+    @property
+    def find_identity_property_name(self) -> Callable[[Type[Any]], str]:
+        return self._find_identity_property_name
+
+    @find_identity_property_name.setter
+    def find_identity_property_name(self, find_identity_property_name_function: Callable[[Type[Any]], str]):
+        self._find_identity_property_name = find_identity_property_name_function
+
     @staticmethod
     def json_default(o):
         if o is None:
@@ -376,7 +384,7 @@ class DocumentConventions(object):
         cloned._save_enums_as_integers = self._save_enums_as_integers
         cloned.identity_parts_separator = self.identity_parts_separator
         cloned.disable_topology_updates = self.disable_topology_updates
-        cloned._get_identity_property_name = self._get_identity_property_name
+        cloned._find_identity_property_name = self._find_identity_property_name
 
         cloned.document_id_generator = self.document_id_generator
 
@@ -397,7 +405,7 @@ class DocumentConventions(object):
         if object_type in self._id_property_name_cache:
             return self._id_property_name_cache[object_type]
 
-        id_property_name = self._get_identity_property_name(object_type)
+        id_property_name = self.find_identity_property_name(object_type)
 
         # Cache the result
         self._id_property_name_cache[object_type] = id_property_name
