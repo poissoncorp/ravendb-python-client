@@ -40,7 +40,9 @@ def parse_json(json_string, object_type, mappers, convert_to_snake_case=False):
         try:
             obj = object_type(**obj)
         except TypeError:
-            initialize_dict, set_needed = Utils.make_initialize_dict(obj, object_type.__init__, convert_to_snake_case)
+            initialize_dict, set_needed = Utils.create_initialize_kwargs(
+                obj, object_type.__init__, convert_to_snake_case
+            )
             o = object_type(**initialize_dict)
             if set_needed:
                 for key, value in obj.items():

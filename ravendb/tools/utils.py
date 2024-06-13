@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import time
-from typing import Optional, Dict, Generic, Tuple, TypeVar, Collection, List, Union, Type, TYPE_CHECKING
+from typing import Optional, Dict, Generic, Tuple, TypeVar, Collection, List, Union, Type, TYPE_CHECKING, Any, Callable
 
 from ravendb.primitives import constants
 from ravendb.exceptions import exceptions
@@ -448,22 +448,22 @@ class Utils(object):
         return entity
 
     @staticmethod
-    def initialize_object(obj: dict, object_type: Type[_T], convert_to_snake_case: bool = None) -> _T:
-        initialize_dict, set_needed = Utils.make_initialize_dict(obj, object_type.__init__, convert_to_snake_case)
+    def initialize_object(json_dict: Dict[str, Any], object_type: Type[_T]) -> _T:
+        initialize_dict, should_set_object_fields = Utils.create_initialize_kwargs(json_dict, object_type.__init__)
         try:
-            o = object_type(**initialize_dict)
+            entity = object_type(**initialize_dict)
         except Exception as e:
             if "Id" not in initialize_dict:
                 initialize_dict["Id"] = None
-                o = object_type(**initialize_dict)
+                entity = object_type(**initialize_dict)
             else:
                 raise TypeError(
                     f"Couldn't initialize object of type '{object_type.__name__}' using dict '{initialize_dict}'"
                 ) from e
-        if set_needed:
-            for key, value in obj.items():
-                setattr(o, key, value)
-        return o
+        if should_set_object_fields:
+            for key, value in json_dict.items():
+                setattr(entity, key, value)
+        return entity
 
     @staticmethod
     def get_field_names(object_type: Type[_T]) -> List[str]:
@@ -492,11 +492,11 @@ class Utils(object):
             return DynamicStructure(**json_dict)
 
         if nested_object_types is None:
-            return Utils.initialize_object(json_dict, object_type, True)
+            return Utils.initialize_object(json_dict, object_type)
 
         entity = DynamicStructure(**json_dict)
         entity.__class__ = object_type
-        entity = Utils.initialize_object(json_dict, object_type, True)
+        entity = Utils.initialize_object(json_dict, object_type)
         if nested_object_types:
             Utils.fill_with_nested_object_types(entity, nested_object_types)
         Utils.deep_convert_to_snake_case(entity)
@@ -599,31 +599,13 @@ class Utils(object):
         return entity, metadata, original_document
 
     @staticmethod
-    def make_initialize_dict(document, entity_init, convert_to_snake_case=None):
-        """
-        This method will create an entity from document
-        In case convert_to_snake_case will convert document keys to snake_case
-        convert_to_snake_case can be dictionary with special words you can change ex. From -> from_date
-        """
-        if convert_to_snake_case:
-            convert_to_snake_case = {} if convert_to_snake_case is True else convert_to_snake_case
-            try:
-                converted_document = {}
-                for key in document:
-                    converted_key = convert_to_snake_case.get(key, key)
-                    converted_document[converted_key if key == "Id" else Utils.convert_to_snake_case(converted_key)] = (
-                        document[key]
-                    )
-                document = converted_document
-            except:
-                pass
-
-        if entity_init is None:
-            return document
-
+    def create_initialize_kwargs(
+        document: Dict[str, Any],
+        object_init_method: Callable[[Dict[str, Any]], None],
+    ) -> Dict[str, Any]:
         set_needed = False
         entity_initialize_dict = {}
-        args, __, keywords, defaults, _, _, _ = inspect.getfullargspec(entity_init)
+        args, __, keywords, defaults, _, _, _ = inspect.getfullargspec(object_init_method)
         if (len(args) - 1) > len(document):
             remainder = len(args)
             if defaults:

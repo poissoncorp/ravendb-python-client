@@ -1,9 +1,9 @@
-def create_entity_with_mapper(dict_obj, mapper, object_type, convert_to_snake_case=None):
-    """
-    This method will create an entity from dict_obj and mapper
-    In case convert_to_snake_case is empty will convert dict_obj keys to snake_case
-    convert_to_snake_case can be dictionary with special words you can change ex. From -> from_date
-    """
+from typing import Type, TypeVar
+
+_T = TypeVar("_T")
+
+
+def create_entity_with_mapper(dict_obj, mapper, object_type: Type[_T]):
     from ravendb.tools.utils import Utils
 
     def parse_dict_rec(data):
@@ -14,7 +14,6 @@ def create_entity_with_mapper(dict_obj, mapper, object_type, convert_to_snake_ca
                         data[i] = Utils.initialize_object(
                             parse_dict_rec(data[i])[0],
                             object_type,
-                            convert_to_snake_case,
                         )
                 except TypeError:
                     return data, False
@@ -39,5 +38,5 @@ def create_entity_with_mapper(dict_obj, mapper, object_type, convert_to_snake_ca
     first_parsed, need_to_parse = parse_dict_rec(dict_obj)
     # After create a complete dict for our object we need to create the object with the object_type
     if first_parsed is not None and need_to_parse:
-        return Utils.initialize_object(first_parsed, object_type, convert_to_snake_case)
+        return Utils.initialize_object(first_parsed, object_type)
     return first_parsed
