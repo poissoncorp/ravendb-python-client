@@ -197,11 +197,11 @@ class RequestExecutor:
 
     @property
     def preferred_node(self) -> CurrentIndexAndNode:
-        self.__ensure_node_selector()
+        self._ensure_node_selector()
         return self._node_selector.get_preferred_node()
 
     def get_requested_node(self, node_tag: str, throw_if_contains_failures: bool = False) -> CurrentIndexAndNode:
-        self.__ensure_node_selector()
+        self._ensure_node_selector()
         current_index_and_node = self._node_selector.get_requested_node(node_tag)
 
         if throw_if_contains_failures and not self._node_selector.node_is_available(
@@ -212,6 +212,16 @@ class RequestExecutor:
             )
 
         return current_index_and_node
+
+    def get_fastest_node(self) -> CurrentIndexAndNode:
+        self._ensure_node_selector()
+
+        return self._node_selector.get_fastest_node()
+
+    def get_node_by_session_id(self, session_id: int = None) -> CurrentIndexAndNode:
+        self._ensure_node_selector()
+
+        return self._node_selector.get_node_by_session_id(session_id)
 
     def __on_failed_request_invoke(self, url: str, e: Exception):
         for event in self.__on_failed_request:
@@ -1229,7 +1239,7 @@ class RequestExecutor:
     def client_configuration_etag(self, value):
         self._client_configuration_etag = value
 
-    def __ensure_node_selector(self) -> None:
+    def _ensure_node_selector(self) -> None:
         if not self._disable_topology_updates:
             self.__wait_for_topology_update(self._first_topology_update_task)
 

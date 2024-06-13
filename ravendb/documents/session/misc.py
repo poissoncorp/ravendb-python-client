@@ -6,16 +6,17 @@ from abc import ABC
 from enum import Enum
 from typing import Union, Optional, TYPE_CHECKING, List, Dict, Generic, TypeVar
 
-from ravendb.http.misc import LoadBalanceBehavior
+from ravendb.http.misc import LoadBalanceBehavior, ReadBalanceBehavior
 
 if TYPE_CHECKING:
     from ravendb.http.request_executor import RequestExecutor
-    from ravendb.documents.session.query import Query
+    from ravendb.documents.queries.misc import Query
     from ravendb.documents.session.operations.query import QueryOperation
     from ravendb.documents.session.document_session_operations.in_memory_document_session_operations import (
         InMemoryDocumentSessionOperations,
     )
-    from ravendb.documents import DocumentStore
+    from ravendb.documents.store.definition import DocumentStore
+    from ravendb.http.server_node import ServerNode
 
 _T_Key = TypeVar("_T_Key")
 _T_Value = TypeVar("_T_Value")
@@ -110,6 +111,25 @@ class SessionInfo:
 
     def increment_request_count(self) -> None:
         self._session.increment_requests_count()
+
+    def get_current_session_node(self, request_executor: RequestExecutor) -> ServerNode:
+        if request_executor.conventions.load_balance_behavior == LoadBalanceBehavior.USE_SESSION_CONTEXT:
+            if self._can_use_load_balance_behavior:
+                result = request_executor.get_node_by_session_id(self.session_id)
+                return result.current_node
+
+        read_balance_behavior = request_executor.conventions.read_balance_behavior
+
+        if read_balance_behavior == ReadBalanceBehavior.NONE:
+            result = request_executor.preferred_node
+        elif read_balance_behavior == ReadBalanceBehavior.ROUND_ROBIN:
+            result = request_executor.get_node_by_session_id(self.session_id)
+        elif read_balance_behavior == ReadBalanceBehavior.FASTEST_NODE:
+            result = request_executor.get_fastest_node()
+        else:
+            raise ValueError(f"Unsupported read balance behavior '{str(read_balance_behavior)}'")
+
+        return result.current_node
 
 
 class SessionOptions:

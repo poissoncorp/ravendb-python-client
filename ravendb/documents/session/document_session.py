@@ -102,6 +102,7 @@ if TYPE_CHECKING:
     from ravendb.documents.operations.lazy.definition import LazyOperation
     from ravendb.http.request_executor import RequestExecutor
     from ravendb.documents.store.definition import DocumentStore
+    from ravendb.http.server_node import ServerNode
 
 _T = TypeVar("_T")
 _TIndex = TypeVar("_TIndex", bound=AbstractCommonApiForIndexes)
@@ -758,6 +759,9 @@ class DocumentSession(InMemoryDocumentSessionOperations):
 
         def raw_query(self, query: str, object_type: Optional[Type[_T]] = None) -> RawDocumentQuery[_T]:
             return RawDocumentQuery(object_type, self._session, query)
+
+        def get_current_session_node(self) -> ServerNode:
+            return self.session_info.get_current_session_node(self.request_executor)
 
         @property
         def lazily(self) -> LazySessionOperations:

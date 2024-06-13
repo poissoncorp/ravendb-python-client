@@ -96,19 +96,19 @@ class NodeSelector:
             self.__update_fastest_node_timer.__exit__()
 
     def __init__(self, topology: Topology, thread_pool: ThreadPoolExecutor):
-        self.__state = self.__NodeSelectorState(topology)
+        self._state = self.__NodeSelectorState(topology)
         self.__update_fastest_node_timer: Union[None, time] = None
         self.__thread_pool_executor = thread_pool
 
     @property
     def topology(self) -> Topology:
-        return self.__state.topology
+        return self._state.topology
 
     def node_is_available(self, index: int) -> bool:
-        return self.__state.failures[index] == 0
+        return self._state.failures[index] == 0
 
     def on_failed_request(self, node_index: int) -> None:
-        state = self.__state
+        state = self._state
         if node_index < 0 or node_index >= len(state.failures):
             return
         state.failures[node_index] += 1
@@ -117,19 +117,19 @@ class NodeSelector:
         if topology is None:
             return False
 
-        state_etag = self.__state.topology.etag if self.__state.topology.etag else 0
+        state_etag = self._state.topology.etag if self._state.topology.etag else 0
         topology_etag = topology.etag if topology.etag else 0
 
         if state_etag >= topology_etag and not force_update:
             return False
 
         state = NodeSelector.__NodeSelectorState(topology)
-        self.__state = state
+        self._state = state
 
         return True
 
     def get_requested_node(self, node_tag: str) -> CurrentIndexAndNode:
-        state = self.__state
+        state = self._state
         server_nodes = state.nodes
         for i in range(len(server_nodes)):
             if server_nodes[i].cluster_tag == node_tag:
@@ -140,7 +140,7 @@ class NodeSelector:
         raise RequestedNodeUnavailableException(f"Could not find requested node {node_tag}")
 
     def get_preferred_node(self) -> CurrentIndexAndNode:
-        state = self.__state
+        state = self._state
         return self.get_preferred_node_internal(state)
 
     @classmethod
@@ -154,7 +154,7 @@ class NodeSelector:
         return cls.unlikely_everyone_faulted_choice(state)
 
     def get_preferred_node_with_topology(self) -> CurrentIndexAndNodeAndEtag:
-        state = self.__state
+        state = self._state
         preferred_node = self.get_preferred_node_internal(state)
         etag = (state.topology.etag if state.topology.etag else -2) if state.topology else -2
         return CurrentIndexAndNodeAndEtag(preferred_node.current_index, preferred_node.current_node, etag)
@@ -168,7 +168,7 @@ class NodeSelector:
         return state.node_when_everyone_marked_as_faulted
 
     def get_node_by_session_id(self, session_id: int) -> CurrentIndexAndNode:
-        state = self.__state
+        state = self._state
         if len(state.topology.nodes) == 0:
             raise AllTopologyNodesDownException("There are no nodes in the topology at all")
         index = abs(session_id % len(state.topology.nodes))
@@ -183,7 +183,7 @@ class NodeSelector:
         return self.get_preferred_node()
 
     def get_fastest_node(self) -> CurrentIndexAndNode:
-        state = self.__state
+        state = self._state
         if state.failures[state.fastest] == 0 and state.nodes[state.fastest].server_role == ServerNode.Role.MEMBER:
             return CurrentIndexAndNode(state.fastest, state.nodes[state.fastest])
 
@@ -191,11 +191,11 @@ class NodeSelector:
         # another run of finding who the fastest node is, in the mantime
         # we'll just use the server preferred node or failover as usual
 
-        self.__switch_to_speed_test_phase()
+        self._switch_to_speed_test_phase()
         return self.get_preferred_node()
 
     def restore_node_index(self, node_index: int) -> None:
-        state = self.__state
+        state = self._state
         if len(state.failures) <= node_index:
             return
 
@@ -205,24 +205,23 @@ class NodeSelector:
     def _throw_empty_topology() -> None:
         raise RuntimeError("Empty database topology, this shouldn't happen.")
 
-    def __switch_to_speed_test_phase(self) -> None:
-        state = self.__state
+    def _switch_to_speed_test_phase(self) -> None:
+        state = self._state
 
         if not state.speed_test_mode == 0:
             state.speed_test_mode = 1
             return
 
-        for i in state.fastest_records:
-            i = 0
+        state.fastest_records = len(state.fastest_records) * [0]
 
         state.speed_test_mode += 1
 
     @property
     def in_speed_test_phase(self) -> bool:
-        return self.__state.speed_test_mode > 1
+        return self._state.speed_test_mode > 1
 
     def record_fastest(self, index: int, node: ServerNode) -> None:
-        state = self.__state
+        state = self._state
         state_fastest = state.fastest_records
 
         # the following two checks are to verify that things didn't move
@@ -273,11 +272,11 @@ class NodeSelector:
 
         else:
             self.__update_fastest_node_timer = threading.Timer(
-                datetime.timedelta(minutes=1), self.__switch_to_speed_test_phase
+                datetime.timedelta(minutes=1), self._switch_to_speed_test_phase
             )
 
     def schedule_speed_test(self) -> None:
-        self.__switch_to_speed_test_phase()
+        self._switch_to_speed_test_phase()
 
 
 class CurrentIndexAndNode:
