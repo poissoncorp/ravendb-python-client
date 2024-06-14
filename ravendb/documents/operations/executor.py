@@ -126,7 +126,7 @@ class MaintenanceOperationExecutor:
     def server(self) -> ServerOperationExecutor:
         if self._server_operation_executor is not None:
             return self._server_operation_executor
-        self._server_operation_executor = ServerOperationExecutor(self._store)
+        self._server_operation_executor = ServerOperationExecutor.from_store(self._store)
         return self._server_operation_executor
 
     def for_database(self, database_name: str) -> MaintenanceOperationExecutor:
