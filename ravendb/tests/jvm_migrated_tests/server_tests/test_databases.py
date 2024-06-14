@@ -9,6 +9,7 @@ from ravendb.documents.indexes.definitions import (
 )
 from ravendb.infrastructure.graph import Genre
 from ravendb.serverwide.database_record import DatabaseRecordWithEtag
+from ravendb.serverwide.operations.common import AddDatabaseNodeOperation
 from ravendb.tests.test_base import TestBase
 
 
@@ -47,3 +48,11 @@ class DatabasesTest(TestBase):
         self.assertEqual(GroupByArrayBehavior.NOT_APPLICABLE, field_options.group_by_array_behavior)
         self.assertFalse(field_options.suggestions)
         self.assertFalse(field_options.is_name_quoted)
+
+    def test_can_add_node(self):
+        self.assertRaisesWithMessageContaining(
+            self.store.maintenance.server.send,
+            Exception,
+            "Can't add node",
+            AddDatabaseNodeOperation(self.store.database),
+        )

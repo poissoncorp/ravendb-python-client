@@ -449,3 +449,41 @@ class PromoteDatabaseNodeOperation(ServerOperation[DatabasePutResult]):
 
         def get_raft_unique_request_id(self) -> str:
             return RaftIdGenerator.new_id()
+
+
+class AddDatabaseNodeOperation(ServerOperation[DatabasePutResult]):
+    def __init__(self, database_name: str, node: str = None):
+        super().__init__()
+        self._database_name = database_name
+        self._node = node
+
+    def get_command(self, conventions: "DocumentConventions") -> "AddDatabaseNodeOperation.AddDatabaseNodeCommand":
+        return self.AddDatabaseNodeCommand(self._database_name, self._node)
+
+    class AddDatabaseNodeCommand(RavenCommand[DatabasePutResult]):
+        def __init__(self, database_name: str, node: Optional[str]):
+            super().__init__(DatabasePutResult)
+
+            if not database_name or database_name.isspace():
+                raise ValueError("Database name cannot be None or empty")
+            self._database_name = database_name
+            self._node = node
+
+        def create_request(self, node: ServerNode) -> requests.Request:
+            url = f"{node.url}/admin/databases/node?name={self._database_name}"
+            if self._node:
+                url += f"&node={self._node}"
+
+            return requests.Request("PUT", url)
+
+        def set_response(self, response: Optional[str], from_cache: bool) -> None:
+            if response is None:
+                self._throw_invalid_response()
+
+            self.result = DatabasePutResult.from_json(json.loads(response))
+
+        def is_read_request(self) -> bool:
+            return False
+
+        def get_raft_unique_request_id(self) -> str:
+            return RaftIdGenerator.new_id()
