@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 import json
-from typing import Optional, Dict, List, TYPE_CHECKING
+from typing import Optional, Dict, List, TYPE_CHECKING, Any
 
 import requests
 
@@ -289,3 +289,75 @@ class GetDetailedStatisticsOperation(MaintenanceOperation[DetailedDatabaseStatis
 
         def is_read_request(self) -> bool:
             return True
+
+
+class CollectionDetails:
+    def __init__(
+        self,
+        name: str = None,
+        count_of_documents: int = None,
+        size: Size = None,
+        documents_size: Size = None,
+        tombstones_size: Size = None,
+        revisions_size: Size = None,
+    ):
+        self.name = name
+        self.count_of_documents = count_of_documents
+        self.size = size
+        self.documents_size = documents_size
+        self.tombstones_size = tombstones_size
+        self.revisions_size = revisions_size
+
+    @classmethod
+    def from_json(cls, json_dict: Dict[str, Any]) -> CollectionDetails:
+        return cls(
+            json_dict["Name"],
+            json_dict["CountOfDocuments"],
+            Size.from_json(json_dict["Size"]),
+            Size.from_json(json_dict["DocumentsSize"]),
+            Size.from_json(json_dict["TombstonesSize"]),
+            Size.from_json(json_dict["RevisionsSize"]),
+        )
+
+
+class DetailedCollectionStatistics:
+    def __init__(
+        self,
+        count_of_documents: int = None,
+        count_of_conflicts: int = None,
+        collections: Dict[str, CollectionDetails] = None,
+    ) -> None:
+        self.count_of_documents = count_of_documents
+        self.count_of_conflicts = count_of_conflicts
+        self.collections = collections
+
+    @classmethod
+    def from_json(cls, json_dict: Dict[str, Any]) -> "DetailedCollectionStatistics":
+        return cls(
+            json_dict["CountOfDocuments"],
+            json_dict["CountOfConflicts"],
+            {key: CollectionDetails.from_json(value) for key, value in json_dict["Collections"].items()},
+        )
+
+
+class GetDetailedCollectionStatisticsOperation(MaintenanceOperation[DetailedCollectionStatistics]):
+    def get_command(
+        self, conventions: "DocumentConventions"
+    ) -> "GetDetailedCollectionStatisticsOperation.GetDetailedCollectionStatisticsCommand":
+        return self.GetDetailedCollectionStatisticsCommand()
+
+    class GetDetailedCollectionStatisticsCommand(RavenCommand[DetailedCollectionStatistics]):
+        def __init__(self):
+            super().__init__(DetailedCollectionStatistics)
+
+        def is_read_request(self) -> bool:
+            return True
+
+        def create_request(self, node: ServerNode) -> requests.Request:
+            return requests.Request("GET", f"{node.url}/databases/{node.database}/collections/stats/detailed")
+
+        def set_response(self, response: Optional[str], from_cache: bool) -> None:
+            if not response:
+                self._throw_invalid_response()
+
+            self.result = DetailedCollectionStatistics.from_json(json.loads(response))
