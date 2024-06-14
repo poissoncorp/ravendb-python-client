@@ -1,7 +1,7 @@
 from __future__ import annotations
 import datetime
 from threading import Lock
-from typing import Any, Union, Optional, Iterable, Dict, Tuple, Callable
+from typing import Any, Union, Optional, Iterable, Dict, Tuple, Callable, Type
 
 from typing import TYPE_CHECKING
 
@@ -15,22 +15,27 @@ if TYPE_CHECKING:
 
 class GenerateEntityIdOnTheClient:
     def __init__(self, conventions: "DocumentConventions", generate_id: Callable[[Any], str]):
-        self.__conventions = conventions
-        self.__generate_id = generate_id
+        self._conventions = conventions
+        self._generate_id = generate_id
+
+    def get_identity_property_name(self, object_type: Type[Any]) -> str:
+        return self._conventions.get_identity_property_name(object_type)
 
     def try_get_id_from_instance(self, entity: Union[object, dict]) -> Tuple[bool, Union[str, None]]:
         if not entity:
             raise ValueError("Entity cannot be None")
-        identity_property = "Id"  # todo: make sure it's ok, create get_identity_property within conventions if not
+
+        identity_property = self.get_identity_property_name(entity.__class__)
+
         value = (entity if isinstance(entity, dict) else entity.__dict__).get(identity_property, None)
         if isinstance(value, str):
             return True, value
         return False, None
 
     def get_or_generate_document_id(self, entity) -> str:
-        key = self.try_get_id_from_instance(entity)[1]
-        if key is None:
-            key = self.__generate_id(entity)
+        success, key = self.try_get_id_from_instance(entity)
+        if not success:
+            key = self._generate_id(entity)
 
         if key and key.startswith("/"):
             raise ValueError(f"Cannot use value '{key}' as a document id because it begins with a '/'")
@@ -43,22 +48,22 @@ class GenerateEntityIdOnTheClient:
         return key
 
     def try_set_identity(self, entity: object, key: str, is_projection: bool = False) -> None:
-        self.__try_set_identity_internal(entity, key, is_projection)
+        self._try_set_identity_internal(entity, key, is_projection)
 
-    def __try_set_identity_internal(self, entity: Union[object, dict], key: str, is_projection: bool = False) -> None:
-        identity_property = "Id"  # todo: get_identity_property...
+    def _try_set_identity_internal(self, entity: Union[object, dict], key: str, is_projection: bool = False) -> None:
+        identity_property_name = self._conventions.get_identity_property_name(entity.__class__)
 
-        if identity_property is None:
+        if identity_property_name is None:
             return
 
-        if is_projection and entity.__getattribute__(identity_property):
+        if is_projection and entity.__getattribute__(identity_property_name):
             # identity property was already set
             return
 
         if isinstance(entity, dict):
-            entity[identity_property] = key
+            entity[identity_property_name] = key
             return
-        entity.__setattr__(identity_property, key)
+        entity.__setattr__(identity_property_name, key)
 
 
 class MultiDatabaseHiLoGenerator:

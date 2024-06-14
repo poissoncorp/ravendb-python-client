@@ -19,7 +19,7 @@ from ravendb.http.raven_command import RavenCommand
 from ravendb.http.server_node import ServerNode
 from ravendb.http.topology import RaftCommand
 from ravendb.json.metadata_as_dictionary import MetadataAsDictionary
-from ravendb.documents.session.entity_to_json import EntityToJson
+from ravendb.documents.session.entity_to_json import EntityToJsonStatic
 from ravendb.tools.utils import Utils
 from ravendb.util.util import RaftIdGenerator
 
@@ -65,15 +65,13 @@ class CompareExchangeResult(Generic[_T]):
 
 class PutCompareExchangeValueOperation(IOperation[CompareExchangeResult], Generic[_T]):
     def __init__(self, key: str, value: _T, index: int, metadata: MetadataAsDictionary = None):
-        self.__key = key
-        self.__value = value
-        self.__index = index
-        self.__metadata = metadata
+        self._key = key
+        self._value = value
+        self._index = index
+        self._metadata = metadata
 
     def get_command(self, store: DocumentStore, conventions: DocumentConventions, cache: HttpCache) -> RavenCommand[_T]:
-        return self.__PutCompareExchangeValueCommand(
-            self.__key, self.__value, self.__index, self.__metadata, conventions
-        )
+        return self.__PutCompareExchangeValueCommand(self._key, self._value, self._index, self._metadata, conventions)
 
     class __PutCompareExchangeValueCommand(RavenCommand[_T], RaftCommand, Generic[_T]):
         def __init__(
@@ -87,29 +85,29 @@ class PutCompareExchangeValueOperation(IOperation[CompareExchangeResult], Generi
 
             super().__init__(CompareExchangeResult[_T])
 
-            self.__key = key
-            self.__value = value
-            self.__index = index
-            self.__metadata = metadata
-            self.__conventions = conventions or DocumentConventions()
+            self._key = key
+            self._value = value
+            self._index = index
+            self._metadata = metadata
+            self._conventions = conventions or DocumentConventions()
 
         def is_read_request(self) -> bool:
             return False
 
         def create_request(self, node: ServerNode) -> requests.Request:
-            url = f"{node.url}/databases/{node.database}/cmpxchg?key={Utils.quote_key(self.__key)}&index={self.__index}"
-            tuple = {constants.CompareExchange.OBJECT_FIELD_NAME: self.__value}
-            json_dict = EntityToJson.convert_entity_to_json_internal_static(tuple, self.__conventions, None, False)
-            if self.__metadata:
+            url = f"{node.url}/databases/{node.database}/cmpxchg?key={Utils.quote_key(self._key)}&index={self._index}"
+            object_and_value = {constants.CompareExchange.OBJECT_FIELD_NAME: self._value}
+            json_dict = EntityToJsonStatic.convert_entity_to_json(object_and_value, self._conventions, None, False)
+            if self._metadata:
                 metadata = CompareExchangeSessionValue.prepare_metadata_for_put(
-                    self.__key, self.__metadata, self.__conventions
+                    self._key, self._metadata, self._conventions
                 )
                 json_dict[constants.Documents.Metadata.KEY] = metadata
 
             return requests.Request("PUT", url, data=json_dict)
 
         def set_response(self, response: str, from_cache: bool) -> None:
-            self.result = CompareExchangeResult.parse_from_string(type(self.__value), response, self.__conventions)
+            self.result = CompareExchangeResult.parse_from_string(type(self._value), response, self._conventions)
 
         def get_raft_unique_request_id(self) -> str:
             return RaftIdGenerator.new_id()
@@ -117,13 +115,13 @@ class PutCompareExchangeValueOperation(IOperation[CompareExchangeResult], Generi
 
 class GetCompareExchangeValueOperation(IOperation[CompareExchangeValue[_T]], Generic[_T]):
     def __init__(self, key: str, object_type: Type[_T], materialize_metadata: bool = True):
-        self.__key = key
-        self.__object_type = object_type
-        self.__materialize_metadata = materialize_metadata
+        self._key = key
+        self._object_type = object_type
+        self._materialize_metadata = materialize_metadata
 
     def get_command(self, store: DocumentStore, conventions: DocumentConventions, cache: HttpCache) -> RavenCommand[_T]:
         return self.GetCompareExchangeValueCommand(
-            self.__key, self.__object_type, self.__materialize_metadata, conventions
+            self._key, self._object_type, self._materialize_metadata, conventions
         )
 
     class GetCompareExchangeValueCommand(RavenCommand[CompareExchangeValue[_T]]):
@@ -133,32 +131,32 @@ class GetCompareExchangeValueOperation(IOperation[CompareExchangeValue[_T]], Gen
             if not key:
                 raise ValueError("The key argument must have value")
             super().__init__(CompareExchangeValue[_T])
-            self.__key = key
-            self.__object_type = object_type
-            self.__materialize_metadata = materialize_metadata
-            self.__conventions = conventions
+            self._key = key
+            self._object_type = object_type
+            self._materialize_metadata = materialize_metadata
+            self._conventions = conventions
 
         def is_read_request(self) -> bool:
             return True
 
         def create_request(self, node: ServerNode) -> requests.Request:
-            url = f"{node.url}/databases/{node.database}/cmpxchg?key={Utils.quote_key(self.__key)}"
+            url = f"{node.url}/databases/{node.database}/cmpxchg?key={Utils.quote_key(self._key)}"
             return requests.Request("GET", url)
 
         def set_response(self, response: str, from_cache: bool) -> None:
             self.result = CompareExchangeValueResultParser.get_value(
-                self.__object_type, response, self.__materialize_metadata, self.__conventions
+                self._object_type, response, self._materialize_metadata, self._conventions
             )
 
 
 class DeleteCompareExchangeValueOperation(IOperation[CompareExchangeResult[_T]], Generic[_T]):
     def __init__(self, object_type: type, key: str, index: int):
-        self.__key = key
-        self.__object_type = object_type
-        self.__index = index
+        self._key = key
+        self._object_type = object_type
+        self._index = index
 
     def get_command(self, store: DocumentStore, conventions: DocumentConventions, cache: HttpCache) -> RavenCommand[_T]:
-        return self.RemoveCompareExchangeCommand[_T](self.__object_type, self.__key, self.__index, conventions)
+        return self.RemoveCompareExchangeCommand[_T](self._object_type, self._key, self._index, conventions)
 
     class RemoveCompareExchangeCommand(RavenCommand[CompareExchangeResult[_T]], RaftCommand, Generic[_T]):
         def __init__(self, object_type: type, key: str, index: int, conventions: DocumentConventions):
@@ -166,10 +164,10 @@ class DeleteCompareExchangeValueOperation(IOperation[CompareExchangeResult[_T]],
                 raise ValueError("The key must have value")
 
             super().__init__(CompareExchangeResult[_T])
-            self.__object_type = object_type
-            self.__key = key
-            self.__index = index
-            self.__conventions = conventions
+            self._object_type = object_type
+            self._key = key
+            self._index = index
+            self._conventions = conventions
 
         def is_read_request(self) -> bool:
             return True
@@ -177,11 +175,11 @@ class DeleteCompareExchangeValueOperation(IOperation[CompareExchangeResult[_T]],
         def create_request(self, node: ServerNode) -> requests.Request:
             return requests.Request(
                 "DELETE",
-                f"{node.url}/databases/{node.database}/cmpxchg?key={Utils.quote_key(self.__key)}&index={self.__index}",
+                f"{node.url}/databases/{node.database}/cmpxchg?key={Utils.quote_key(self._key)}&index={self._index}",
             )
 
         def set_response(self, response: str, from_cache: bool) -> None:
-            self.result = CompareExchangeResult.parse_from_string(self.__object_type, response, self.__conventions)
+            self.result = CompareExchangeResult.parse_from_string(self._object_type, response, self._conventions)
 
         def get_raft_unique_request_id(self) -> str:
             return RaftIdGenerator.new_id()
@@ -226,9 +224,9 @@ class GetCompareExchangeValuesOperation(IOperation[Dict[str, CompareExchangeValu
             conventions: DocumentConventions,
         ):
             super().__init__(dict)
-            self.__operation = operation
-            self.__materialize_metadata = materialize_metadata
-            self.__conventions = conventions
+            self._operation = operation
+            self._materialize_metadata = materialize_metadata
+            self._conventions = conventions
 
         def is_read_request(self) -> bool:
             return True
@@ -236,24 +234,24 @@ class GetCompareExchangeValuesOperation(IOperation[Dict[str, CompareExchangeValu
         def create_request(self, node: ServerNode) -> requests.Request:
             path_builder = [node.url, "/databases/", node.database, "/cmpxchg?"]
 
-            if self.__operation._keys:
-                for key in self.__operation._keys:
+            if self._operation._keys:
+                for key in self._operation._keys:
                     path_builder.append("&key=")
                     path_builder.append(Utils.quote_key(key))
             else:
-                if self.__operation._start_with:
+                if self._operation._start_with:
                     path_builder.append("&startsWith=")
-                    path_builder.append(Utils.quote_key(self.__operation._start_with))
-                if self.__operation._start:
+                    path_builder.append(Utils.quote_key(self._operation._start_with))
+                if self._operation._start:
                     path_builder.append("&start=")
-                    path_builder.append(Utils.quote_key(self.__operation._start))
-                if self.__operation._page_size:
+                    path_builder.append(Utils.quote_key(self._operation._start))
+                if self._operation._page_size:
                     path_builder.append("&pageSize=")
-                    path_builder.append(Utils.quote_key(self.__operation._page_size))
+                    path_builder.append(Utils.quote_key(self._operation._page_size))
 
             return requests.Request("GET", "".join(path_builder))
 
         def set_response(self, response: str, from_cache: bool) -> None:
             self.result = CompareExchangeValueResultParser.get_values(
-                self.__operation._object_type, response, self.__materialize_metadata, self.__conventions
+                self._operation._object_type, response, self._materialize_metadata, self._conventions
             )

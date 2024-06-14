@@ -12,7 +12,7 @@ from ravendb.documents.operations.definitions import IOperation, MaintenanceOper
 from ravendb.http.raven_command import RavenCommand
 from ravendb.util.util import RaftIdGenerator
 from ravendb.http.topology import RaftCommand
-from ravendb.documents.session.entity_to_json import EntityToJson
+from ravendb.documents.session.entity_to_json import EntityToJsonStatic
 from ravendb.documents.conventions import DocumentConventions
 
 
@@ -167,7 +167,7 @@ class GetRevisionsOperation(Generic[_T], IOperation[RevisionsResult[_T]]):
                 if not revision:
                     continue
 
-                entity = EntityToJson.convert_to_entity_static(
+                entity = EntityToJsonStatic.convert_to_entity(
                     revision, self._object_type, DocumentConventions.default_conventions()
                 )
                 results.append(entity)

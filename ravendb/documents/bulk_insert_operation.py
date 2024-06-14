@@ -25,7 +25,7 @@ from ravendb.exceptions.raven_exceptions import RavenException
 from ravendb.http.server_node import ServerNode
 from ravendb.http.raven_command import RavenCommand
 from ravendb.documents.operations.misc import GetOperationStateOperation
-from ravendb.documents.session.entity_to_json import EntityToJson
+from ravendb.documents.session.entity_to_json import EntityToJsonStatic
 from ravendb.documents.session.document_info import DocumentInfo
 from ravendb.json.metadata_as_dictionary import MetadataAsDictionary
 from ravendb.documents.commands.batches import CommandType
@@ -322,7 +322,7 @@ class BulkInsertOperation:
 
     def _write_document(self, entity: object, metadata: MetadataAsDictionary):
         document_info = DocumentInfo(metadata_instance=metadata)
-        json_dict = EntityToJson.convert_entity_to_json_internal_static(entity, self._conventions, document_info, True)
+        json_dict = EntityToJsonStatic.convert_entity_to_json(entity, self._conventions, document_info, True)
         self._current_data_buffer += bytearray(json.dumps(json_dict), encoding="utf-8")
 
     def _ensure_ongoing_operation(self) -> None:
