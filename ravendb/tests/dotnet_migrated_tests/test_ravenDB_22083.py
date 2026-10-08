@@ -17,8 +17,8 @@ class Candle:
 
 
 class AggregateCandle:
-    def __init__(self, ref: str = None, volume: float = None, timeframe: str = None):
-        self.ref = ref
+    def __init__(self, reference: str = None, volume: float = None, timeframe: str = None):
+        self.reference = reference
         self.volume = volume
         self.timeframe = timeframe
 
@@ -30,12 +30,12 @@ class IndexWithConstantArrayAsInnerSource(AbstractIndexCreationTask):
             "from candle in docs.Candles "
             'from x in new[] { new { Interval = 60000L, Timeframe = "1m" }, '
             'new { Interval = 300000L, Timeframe = "5m" } } '
-            'select new { ref = $"{candle.time / x.Interval}", volume = candle.volume, timeframe = x.Timeframe }'
+            'select new { reference = $"{candle.time / x.Interval}", volume = candle.volume, timeframe = x.Timeframe }'
         )
         self.reduce = (
             "from result in results "
-            "group result by new { result.timeframe, result.ref } into g "
-            "select new { ref = g.Key.ref, volume = g.Sum(x => x.volume), timeframe = g.Key.timeframe }"
+            "group result by new { result.timeframe, result.reference } into g "
+            "select new { reference = g.Key.reference, volume = g.Sum(x => x.volume), timeframe = g.Key.timeframe }"
         )
 
 
@@ -46,7 +46,7 @@ class IndexWithConstantArrayAsOuterSource(AbstractIndexCreationTask):
             'from x in new[] { new { Interval = 60000L, Timeframe = "1m" }, '
             'new { Interval = 300000L, Timeframe = "5m" } } '
             "from candle in docs.Candles "
-            'select new { ref = $"{candle.time / x.Interval}", volume = candle.volume, timeframe = x.Timeframe }'
+            'select new { reference = $"{candle.time / x.Interval}", volume = candle.volume, timeframe = x.Timeframe }'
         )
 
 
@@ -55,12 +55,12 @@ class IndexWithOrderedReduce(AbstractIndexCreationTask):
         super().__init__()
         self.map = (
             "from candle in docs.Candles "
-            'select new { ref = $"{candle.time / 60000}", volume = candle.volume, timeframe = "1m" }'
+            'select new { reference = $"{candle.time / 60000}", volume = candle.volume, timeframe = "1m" }'
         )
         self.reduce = (
-            "results.GroupBy(x => new { x.timeframe, x.ref })"
-            ".Select(g => new { ref = g.Key.ref, volume = g.Sum(x => x.volume), timeframe = g.Key.timeframe })"
-            ".OrderBy(x => x.ref)"
+            "results.GroupBy(x => new { x.timeframe, x.reference })"
+            ".Select(g => new { reference = g.Key.reference, volume = g.Sum(x => x.volume), timeframe = g.Key.timeframe })"
+            ".OrderBy(x => x.reference)"
         )
 
 
@@ -138,7 +138,7 @@ class TestRavenDB22083(TestBase):
             self.store.execute_index(IndexWithConstantArrayAsOuterSource())
 
         self.assertEqual("Maps", context.exception.index_definition_property)
-        self.assertIn("a C# map must start its enumeration from one of these sources", str(context.exception))
+        self.assertIn("must start its enumeration from 'docs'", str(context.exception))
 
     def test_index_definition_sent_as_text_with_constant_array_as_outer_source_throws(self):
         index_definition = IndexDefinition()
